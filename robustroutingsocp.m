@@ -1,9 +1,5 @@
-function [slack_var, status] = robustroutingsocp(x, qos)
-% ROBUSTROUTINGSOCP solve the robust routing problem without constraining the
-% slack variable to be greater than 0. This should make the problem always
-% feasible. When slack_var >= 0 then the network configuration is valid and
-% when slack_var < 0 it is invalid. slack_var has the interpretation of
-% being the margin with which the chance constraints are satisfied or not.
+function [slack_var, routing_vars, status] = robustroutingsocp(x, qos, constrain_slack)
+% ROBUSTROUTINGSOCP solve the robust routing SOCP formulation
 %
 % inputs:
 %   x   - 2Nx1 column vector of [x;y] agent positions stacked
@@ -21,32 +17,49 @@ function [slack_var, status] = robustroutingsocp(x, qos)
 N = size(x,1)/2;
 K = length(qos);
 
-R = linkratematrix(x);
+%%  form SOCP coefficient matrices
 
-% form SOCP coefficient matrices
-[A, B] = makesocp(qos, R);
+R = linkratematrix(x);
+[A,B] = makesocpconsts(qos,R);
+
+%% Solve SOCP
 
 % confidence threshold
 conf = norminv(vertcat(qos(:).confidence), 0, 1);
 
 % node margins
-m_ik = vertcat(qos(:).margin);
+m_ik = zeros(N,K);
+for k = 1:K
+  for i = 1:length(qos(k).flow.src)
+    m_ik(qos(k).flow.src(i),k) = qos(:).margin;
+  end
+end
 
-% solve SOCP
+% slack bound
+slack_bound = 0;
+if ~constrain_slack
+  slack_bound = -1e10; % sufficiently large number to be unbounded
+end
+
 cvx_begin quiet
-  variables routing_vars(N,N,K) slack_var;
+  variables routing_vars(N,N,K) slack_var
   y = [routing_vars(:); slack_var];
-  expression lhs(K*N);
-  for k = 1:N*K
-    lhs(k) = norm( diag(A(k,:)) * y );
+  expression lhs(N,K)
+  expression rhs(N,K)
+  for k = 1:K
+    for n = 1:N
+      lhs(n,k) = norm( diag( A((k-1)*N+n,:) ) * y );
+      rhs(n,k) = (B((k-1)*N+n,:)*y - m_ik(n,k)) / conf(k);
+    end
   end
   maximize( slack_var )
   subject to
-    lhs <= (B*y - m_ik)./conf
+    lhs <= rhs
     0 <= routing_vars <= 1
     sum( sum(routing_vars, 3), 2) <= 1
-    slack_var >= 0
+    sum( sum(routing_vars, 3), 1) <= 1
+    slack_var >= slack_bound
     routing_vars(logical(repmat(eye(N), [1 1 K]))) == 0
 cvx_end
 
-status = ~isnan(slack_var); % has a solution been found?
+status = ~isnan(slack_var); % check if a solution has been found

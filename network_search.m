@@ -57,7 +57,7 @@ for i = 1:length(stretch)
   x = make_config(x, x_comm, T, Ic, theta(i), stretch(i));
   
   % find unconstrained slack
-  [slack(i), status(i)] = unconstslack(x, qos);
+  [slack(i), routes, status(i)] = robustroutingsocp(x, qos, false);
    
   plot(x(Itx), x(Ity), 'r.', 'MarkerSize', 30);
   plot(x(Icx), x(Icy), 'b.', 'MarkerSize', 30);
@@ -108,3 +108,19 @@ D = kron(eye(length(Ic)/2), D);
 x(Ic) = R*D*x_comm + T;
 
 end
+
+% function plot_routes(x,routes)
+% 
+% figure;hold on;
+% plot(x(1:2:numel(x)), x(2:2:numel(x)), 'r.', 'MarkerSize', 30);
+% for i = 1:size(x,1)/2
+%   for j = i+1:size(x,1)/2
+%     xi = x(2*i-1:2*i);
+%     xj = x(2*j-1:2*j);
+%     plot([xi(1) xj(1)], [xi(2) xj(2)], 'Color', routes(i,j)*ones(3,1),...
+%                                        'LineWidth', 2);
+%   end
+% end
+% axis equal
+% 
+% end
