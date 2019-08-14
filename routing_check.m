@@ -70,14 +70,7 @@ end
 table(lhs,rhs,slack*ones(N,1),'VariableNames',{'lhs','rhs','slack'})
 
 % plot results
-x1 = x(1:2);
-x2 = x(3:4);
-x3 = x(5:6);
-figure(1);clf;hold on
-plot(x(1:2:end),x(2:2:end),'k.','MarkerSize',50);
-cm = colormap('hot');
-plot([x2(1) x3(1)], [x2(2) x3(2)], 'LineWidth', 4, 'Color', cm(ceil(routes(2,3)*size(cm,1)),:));
-plot([x2(1) x1(1)], [x2(2) x1(2)]+0.1, 'LineWidth', 4, 'Color', cm(ceil(routes(2,1)*size(cm,1)),:));
-plot([x1(1) x3(1)], [x1(2) x3(2)], 'LineWidth', 4, 'Color', cm(ceil(routes(3,1)*size(cm,1)),:));
-axis([0-0.1, dist+0.1, -0.1, 0.2])
-colorbar
+ax = gca;
+x_plot = x;
+x_plot(6) = x_plot(6)+1;
+plotroutes(ax, x_plot,routes)
