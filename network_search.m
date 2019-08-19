@@ -7,10 +7,10 @@ qos(1) = struct('flow', struct('src', 2, 'dest', 1),...
                 'confidence', 0.7);
 
 % discretize search
-sample_count = 10;
+sample_count = 50;
 
 % fixed task agent locations
-dist = 8;
+dist = 10;
 x_task = [0 0 dist 0]';
 
 % indexing
@@ -54,13 +54,13 @@ axis equal;
 for i = 1:length(stretch)
     
   % new team config
-  x = make_config(x, x_comm, T, Ic, theta(i), stretch(i));
+  x_new = make_config(x, x_comm, T, Ic, theta(i), stretch(i));
   
   % find unconstrained slack
-  [slack(i), routes, status(i)] = robustroutingsocp(x, qos, false);
+  [slack(i), ~, status(i)] = robustroutingsocp(x_new, qos, false);
    
-  plot(x(Itx), x(Ity), 'r.', 'MarkerSize', 30);
-  plot(x(Icx), x(Icy), 'b.', 'MarkerSize', 30);
+  plot(x_new(Itx), x_new(Ity), 'r.', 'MarkerSize', 30);
+  plot(x_new(Icx), x_new(Icy), 'b.', 'MarkerSize', 30);
   drawnow
   
   waitbar(i/length(stretch),h);
@@ -84,12 +84,17 @@ ylabel('stretch')
 
 %% one best configuration
 
+clc;
 x_star = make_config(x, x_comm, T, Ic, theta(max_idx), stretch(max_idx));
 
 figure(3);clf;hold on;
 plot(x_star(Itx), x_star(Ity), 'r.', 'MarkerSize', 30);
 plot(x_star(Icx), x_star(Icy), 'b.', 'MarkerSize', 30);
 axis equal
+
+figure(4);clf;
+[slack, routes, status] = robustroutingsocp(x_star, qos, false);
+rrsocpinfo(x_star,qos,routes,slack);
 
 %% helper functions
 
@@ -108,19 +113,3 @@ D = kron(eye(length(Ic)/2), D);
 x(Ic) = R*D*x_comm + T;
 
 end
-
-% function plot_routes(x,routes)
-% 
-% figure;hold on;
-% plot(x(1:2:numel(x)), x(2:2:numel(x)), 'r.', 'MarkerSize', 30);
-% for i = 1:size(x,1)/2
-%   for j = i+1:size(x,1)/2
-%     xi = x(2*i-1:2*i);
-%     xj = x(2*j-1:2*j);
-%     plot([xi(1) xj(1)], [xi(2) xj(2)], 'Color', routes(i,j)*ones(3,1),...
-%                                        'LineWidth', 2);
-%   end
-% end
-% axis equal
-% 
-% end
