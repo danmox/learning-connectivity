@@ -1,36 +1,44 @@
-%% initialize parameters
+%% parameters
 clc;clear;
 
-% communication requirements, agent: 2 -> 1
-qos(1) = struct('flow', struct('src', 2, 'dest', 1),...
-                'margin', 0.2,...
-                'confidence', 0.7);
+rrtype = 'meanvar';           % options: meanvar, confidence
+constrain_slack = true;       % enforce slack >= 0 during optimization
+config_visualization = false; % draw the configs as they are checked
+sample_count = 10;            % discretization degree
+dist = 10;                    % distance between task agents
+x_task = [0 0 dist 0]';       % task team locations
+x_comm = [1 0 -1 0]';         % network team locations
 
-% discretize search
-sample_count = 50;
+if strcmp(rrtype,'meanvar')
+  disp('using mean/var formulation');
+  rroptimization = @rrsocpmeanvar;
 
-% fixed task agent locations
-dist = 10;
-x_task = [0 0 dist 0]';
+  % communication requirements, agent: 2 -> 1
+  qos(1) = struct('flow', struct('src', 2, 'dest', 1),...
+    'margin', 0.2,...   % rate margin min
+    'confidence', 0.1); % variance bound
+else
+  disp('using probabilistic confidence formulation');
+  rroptimization = @rrsocpconfidence;
+
+  % communication requirements, agent: 2 -> 1
+  qos(1) = struct('flow', struct('src', 2, 'dest', 1),...
+    'margin', 0.2,...   % rate margin min
+    'confidence', 0.7); % probabilistic confidence
+end
+
+% entire team config
+x = [x_task; x_comm];
 
 % indexing
-task_agent_count = 2;
-comm_agent_count = 2;
+task_agent_count = numel(x_task)/2;
+comm_agent_count = numel(x_comm)/2;
 It = 1:2*task_agent_count; % task_agent_count [x;y] pairs stacked
 Itx = It(1:2:end);
 Ity = It(2:2:end);
 Ic = (1:2*comm_agent_count) + 2*task_agent_count; % comm_agent_count [x;y] pairs stacked
 Icx = Ic(1:2:end);
 Icy = Ic(2:2:end);
-
-% distribute comm agents about circle (initial config)
-angs = (0:2*pi/comm_agent_count:2*pi-pi/comm_agent_count)';
-x_comm = reshape([cos(angs) sin(angs)]', [2*comm_agent_count 1]);
-
-% team config
-x = zeros(2*(task_agent_count + comm_agent_count), 1);
-x(It) = x_task;
-x(Ic) = x_comm;
 
 %% parameter search
 
@@ -41,27 +49,30 @@ T = repmat(T, comm_agent_count, 1);
 % form angle and stretch parameter search space
 theta = linspace(0,pi,sample_count);
 theta = theta - theta(ceil(length(theta)/2)); % subtract the middle element to put 0 in the center
-[theta, stretch] = meshgrid(theta,... 
-                            linspace(0.1, dist/2-0.1, sample_count));
+[theta, stretch] = meshgrid(theta, linspace(0.1, dist/2-0.1, sample_count));
 theta = theta(:);
 stretch = stretch(:);
 slack = zeros(size(stretch)); % slack of resulting network
-status = zeros(size(stretch)); % whether or not the optimization succeeded
+
+if config_visualization
+  figure(1);clf; hold on;
+  axis equal;
+end
 
 h = waitbar(0, 'Performing parameter search');
-figure(1);clf; hold on;
-axis equal;
 for i = 1:length(stretch)
     
   % new team config
   x_new = make_config(x, x_comm, T, Ic, theta(i), stretch(i));
   
   % find unconstrained slack
-  [slack(i), ~, status(i)] = robustroutingsocp(x_new, qos, false);
-   
-  plot(x_new(Itx), x_new(Ity), 'r.', 'MarkerSize', 30);
-  plot(x_new(Icx), x_new(Icy), 'b.', 'MarkerSize', 30);
-  drawnow
+  [slack(i), ~, ~] = rroptimization(x_new, qos, constrain_slack);
+  
+  if config_visualization
+    plot(x_new(Itx), x_new(Ity), 'r.', 'MarkerSize', 30);
+    plot(x_new(Icx), x_new(Icy), 'b.', 'MarkerSize', 30);
+    drawnow
+  end
   
   waitbar(i/length(stretch),h);
 end
@@ -87,14 +98,13 @@ ylabel('stretch')
 clc;
 x_star = make_config(x, x_comm, T, Ic, theta(max_idx), stretch(max_idx));
 
-figure(3);clf;hold on;
-plot(x_star(Itx), x_star(Ity), 'r.', 'MarkerSize', 30);
-plot(x_star(Icx), x_star(Icy), 'b.', 'MarkerSize', 30);
-axis equal
-
-figure(4);clf;
-[slack, routes, status] = robustroutingsocp(x_star, qos, false);
+figure(3);clf;
+[slack, routes, status] = rroptimization(x_star, qos, constrain_slack);
 rrsocpinfo(x_star,qos,routes,slack);
+
+%% debug configs
+
+% test_config(qos, rroptimization, x, x_comm, T, Ic, -25.71*pi/180, 3.627);
 
 %% helper functions
 
@@ -111,5 +121,18 @@ D = kron(eye(length(Ic)/2), D);
 
 % new team config
 x(Ic) = R*D*x_comm + T;
+
+end
+
+function test_config(qos, optfunc, x, x_comm, T, Ic, angle, skew)
+
+% new team config
+x_new = make_config(x, x_comm, T, Ic, angle, skew);
+
+% find unconstrained slack
+[slack, routes, ~] = optfunc(x_new, qos, true);
+
+figure(4);
+rrsocpinfo(x_new, qos, routes, slack);
 
 end

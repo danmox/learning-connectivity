@@ -1,6 +1,6 @@
-function [A,B] = nodemarginconsts(qos,R)
+function [A,B,zero_vars] = nodemarginconsts(qos,R)
 % NODEMARGINCONSTS form node margin constraint matrices of the form:
-% A(i,:)*y = sum_i (a_ij_k)^2 R.var(i,j) - sum j (a_ji_k)^2 R.var(i,j)
+% norm(diag(A(i,:))*y) = sqrt(sum_i (a_ij_k)^2*R.var(i,j) - sum j(a_ji_k)^2*R.var(i,j))
 % B(i,:)*y = sum_i a_ij_k R.avg(i,j) - sum j a_ji_k R.avg(i,j) - s
 %
 % inputs:
@@ -18,8 +18,11 @@ function [A,B] = nodemarginconsts(qos,R)
 %               rates between nodes
 %
 % outputs:
-%   A - an NKxNNK matrix as described above
-%   B - an NKxNNK matrix as described above
+%   A         - an NKxNNK matrix as described above
+%   B         - an NKxNNK matrix as described above
+%   zero_vars - an NxNxK binary matrix where 1s correspond to routing
+%               variables set to zero in the corresponding optimization
+%               problem
 
 N = size(R.avg,1);
 K = length(qos);
@@ -36,31 +39,64 @@ else
   Bseed = zeros(N,N);
 end
 
+% build mask to keep track of zero routing variables
+zero_vars = logical(repmat(eye(N), [1 1 K]));
 for k = 1:K
+  
+  % source nodes should not receive packets
+  for i = 1:length(qos(k).flow.src)
+    zero_vars(:,qos(k).flow.src(i),k) = 1;
+  end
+  
+  % destination nodes should not broadcast packets
+  for j = 1:length(qos(k).flow.dest)
+    zero_vars(qos(k).flow.dest(j),:,k) = 1;
+  end
+
+end
+
+for k = 1:K
+  
   for i = 1:N
     
     Aki = Aseed;
     Bki = Bseed;
     
-    for j = 1:N
+    % source node constraint
+    if any(i == qos(k).flow.src)
       
-      if i == j
-        continue
-      end
+      Aki(i,:) = sqrt(R.var(i,:));
+      Aki(zero_vars(:,:,k)) = 0;
       
-      Aki(i,j) = R.var(i,j);
-      Bki(i,j) = R.avg(i,j);
-            
-      if ~any(qos(k).flow.dest == j)
-        Bki(j,i) = -R.avg(j,i);
-        Aki(j,i) = R.var(j,i);
-      end
+      Bki(i,:) = R.avg(i,:);
+      Bki(zero_vars(:,:,k)) = 0;
       
-    end
+    % destination node constraint
+    elseif any(i == qos(k).flow.dest)
+      
+      Aki(:,i) = sqrt(R.var(:,i));
+      Aki(zero_vars(:,:,k)) = 0;
+      
+      Bki(:,i) = R.avg(:,i);
+      Bki(zero_vars(:,:,k)) = 0;
+      
+    % network node constraint
+    else
+      
+      Aki(:,i) = sqrt(R.var(:,i));
+      Aki(i,:) = sqrt(R.var(i,:));
+      Aki(zero_vars(:,:,k)) = 0;
+      
+      Bki(:,i) = -R.avg(:,i);
+      Bki(i,:) = R.avg(i,:);
+      Bki(zero_vars(:,:,k)) = 0;
+      
+    end    
     
-    A((k-1)*N+i, (k-1)*N*N+1:k*N*N) = sqrt(Aki(:)');
-    B((k-1)*N+i, (k-1)*N*N+1:k*N*N) = Bki(:)';
-    B((k-1)*N+i,end) = -1; % slack
+    A((k-1)*N + i, (k-1)*N*N+1:k*N*N) = Aki(:)';
+    B((k-1)*N + i, (k-1)*N*N+1:k*N*N) = Bki(:)';
+    B((k-1)*N + i, end) = -1; % slack
     
   end
+    
 end

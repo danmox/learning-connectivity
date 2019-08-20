@@ -22,45 +22,52 @@ for k = 1:K
   end
 end
 
-array2table(A(:,1:end-1),'VariableNames', reshape(var_names, [1 N*N*K]))
-array2table(B(:,1:end-1),'VariableNames', reshape(var_names, [1 N*N*K]))
+% contraint matrices
+Amat = array2table(A(:,1:end-1),'VariableNames', reshape(var_names, [1 N*N*K]))
+Bmat = array2table(B(:,1:end-1),'VariableNames', reshape(var_names, [1 N*N*K]))
+
+% distance and channel information
 table(round(squareform(pdist(reshape(x,[2 N])')),3),...
       round(R.avg,3),...
       round(R.var,3),...
       'VariableNames', {'distance','R_avg','R_var'})
+
+% routing and channel usage
 table(round(reshape(routes, [N N*K]),3),...
       round(sum(sum(routes,3),2),2),...
       round(sum(sum(routes,3),1),2)',...
       'VariableNames', {'routes','Tx_usage','Rx_usage'})
 
-% node margins
-m_ik = zeros(N,K);
-for k = 1:K
-  for i = 1:length(qos(k).flow.src)
-    m_ik(qos(k).flow.src(i),k) = qos(:).margin;
-  end
-end
+table(slack,'VariableNames', {'slack'})
 
-% confidence threshold
-conf = norminv(vertcat(qos(:).confidence), 0, 1);
-
-% chance constraints
-y = [routes(:); 0]; % no slack in v(alpha,x)
-v_alpha_x = zeros(N,K);
-if socp_solution
-  for k = 1:K
-    for n = 1:N
-      v_alpha_x(n,k) = (B((k-1)*N+n,:)*y - m_ik(n,k)) / norm( diag( A((k-1)*N+n,:) ) * y ) - conf(k);
-    end
-  end
-else
-  for k = 1:K
-    for n = 1:N
-      v_alpha_x(n,k) = (B((k-1)*N+n,:)*y - m_ik(n,k)) / norm( diag( A((k-1)*N+n,:) ) * y ) - conf(k);
-    end
-  end
-end
-table(v_alpha_x, slack*ones(N,1), 'VariableNames', {'v_alpha_x','slack'})
+% % node margins
+% m_ik = zeros(N,K);
+% for k = 1:K
+%   for i = 1:length(qos(k).flow.src)
+%     m_ik(qos(k).flow.src(i),k) = qos(:).margin;
+%   end
+% end
+% 
+% % confidence threshold
+% conf = norminv(vertcat(qos(:).confidence), 0, 1);
+% 
+% % chance constraints
+% y = [routes(:); 0]; % no slack in v(alpha,x)
+% v_alpha_x = zeros(N,K);
+% if socp_solution
+%   for k = 1:K
+%     for n = 1:N
+%       v_alpha_x(n,k) = (B((k-1)*N+n,:)*y - m_ik(n,k)) / norm( diag( A((k-1)*N+n,:) ) * y ) - conf(k);
+%     end
+%   end
+% else
+%   for k = 1:K
+%     for n = 1:N
+%       v_alpha_x(n,k) = (B((k-1)*N+n,:)*y - m_ik(n,k)) / norm( diag( A((k-1)*N+n,:) ) * y ) - conf(k);
+%     end
+%   end
+% end
+% table(v_alpha_x, slack*ones(N,1), 'VariableNames', {'v_alpha_x','slack'})
 
 % plot results
 plotroutes(gcf, x, routes, qos)
