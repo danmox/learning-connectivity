@@ -1,24 +1,16 @@
 function [rate, var] = stochastic_channel(d)
 
-% model parameters
-L0 = -50.6; % dBm
-n = 2.75;
-sigma_F2 = 40.5; % variance of noise due to fading, ~N(0,sigma_F2)
-N0 = -70; % noise at receiver (dBm)
+cm = channel_model();
 
 % compute link rate
-PR = L0 - 10*n*log10(d); % dBm
+PR = cm.L0 - 10*cm.n*log10(d); % dBm
 P = dBm2mW(PR); % mW
-PN0 = dBm2mW(N0); % mW
-rate = 1 - erfc(sqrt(P./PN0));
+rate = 1 - erfc(sqrt(P./cm.PN0));
 
 % compute link variance (using delta method approximation)
-var = (log(10)/(10*sqrt(PN0*pi))*exp(-P/PN0).*10.^(PR/20)).^2*sigma_F2;
-
+var = (log(10)/(10*sqrt(cm.PN0*pi))*exp(-P/cm.PN0).*10.^(PR/20)).^2*cm.sigma_F2;
+if isnan(var)
+  var = eps;
 end
-
-function mW = dBm2mW(dBm)
-
-mW = 10.^(dBm/10);
 
 end

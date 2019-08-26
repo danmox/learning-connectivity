@@ -1,8 +1,23 @@
-function rrsocpinfo(x, qos, routes, slack, socp_solution)
+function rrsocpinfo(x, qos, routes, slack, verbosity)
 
 if nargin < 5
-  socp_solution = false;
+  verbosity = 4;
 end
+
+print_const_mats = true;
+print_channel_info = true;
+create_figures = true;
+switch verbosity
+  case 1 % print routes
+    print_const_mats = false;
+    print_channel_info = false;
+    create_figures = false;
+  case 2 % print routes and create figure
+    print_const_mats = false;
+    print_channel_info = false;
+  case 3 % pring routes and channel info and create figure
+    print_const_mats = false;
+end % otherwise: print everything and create the figures
 
 R = linkratematrix(x);
 N = size(R.avg,1);
@@ -13,32 +28,41 @@ if issparse(routes)
   routes = full(routes);
 end
 
-var_names = cell(N,N,K);
-for k = 1:K
-  for i = 1:N
-    for j = 1:N
-      var_names{i,j,k} = ['a_' num2str(i) num2str(j) '_' num2str(k)];
+if print_const_mats
+
+  % variable names
+  var_names = cell(N,N,K);
+  for k = 1:K
+    for i = 1:N
+      for j = 1:N
+        var_names{i,j,k} = ['a_' num2str(i) num2str(j) '_' num2str(k)];
+      end
     end
   end
-end
+  var_names = reshape(var_names, [1 N*N*K]);
+  
+  mask = logical([sum(abs(A(:,1:end-1))) ~= 0, 0]);
 
 % contraint matrices
-Amat = array2table(A(:,1:end-1),'VariableNames', reshape(var_names, [1 N*N*K]))
-Bmat = array2table(B(:,1:end-1),'VariableNames', reshape(var_names, [1 N*N*K]))
+  Amat = array2table(round(A(:,find(mask)),3), 'VariableNames', var_names(mask(1:end-1)))
+  Bmat = array2table(round(B(:,find(mask)),3), 'VariableNames', var_names(mask(1:end-1)))
 
-% distance and channel information
-table(round(squareform(pdist(reshape(x,[2 N])')),3),...
-      round(R.avg,3),...
-      round(R.var,3),...
-      'VariableNames', {'distance','R_avg','R_var'})
+end
+
+if print_channel_info
+  % distance and channel information
+  channel_info = table(round(squareform(pdist(reshape(x,[2 N])')),2),...
+    round(R.avg,2),...
+    round(R.var,2),...
+    'VariableNames', {'distance','R_avg','R_var'})
+end
 
 % routing and channel usage
-table(round(reshape(routes, [N N*K]),3),...
+solution_info = table(round(reshape(routes, [N N*K]),2),...
       round(sum(sum(routes,3),2),2),...
       round(sum(sum(routes,3),1),2)',...
-      'VariableNames', {'routes','Tx_usage','Rx_usage'})
-
-table(slack,'VariableNames', {'slack'})
+      round(slack*ones(N,1),2),...
+      'VariableNames', {'routes','Tx_usage','Rx_usage','slack'})
 
 % % node margins
 % m_ik = zeros(N,K);
@@ -70,4 +94,6 @@ table(slack,'VariableNames', {'slack'})
 % table(v_alpha_x, slack*ones(N,1), 'VariableNames', {'v_alpha_x','slack'})
 
 % plot results
-plotroutes(gcf, x, routes, qos)
+if create_figures
+  plotroutes(gcf, x, routes, qos)
+end

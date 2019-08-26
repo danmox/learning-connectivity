@@ -27,7 +27,7 @@ K = length(qos);
 R = linkratematrix(x);
 [A,B,routing_var_mask] = nodemarginconsts(qos,R);
 
-%% Solve LP
+%% Solve SOCP
 
 % node margin bounds
 m_ik = zeros(N,K);
