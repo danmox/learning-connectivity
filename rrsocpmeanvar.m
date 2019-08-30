@@ -1,4 +1,4 @@
-function [slack_var, routing_vars, status] = rrsocpmeanvar(x, qos, constrain_slack)
+function [slack_var, routing_vars, status] = rrsocpmeanvar(x, qos, constrain_slack) %#ok<STOUT>
 % RRSOCPMEANVAR solve the robust routing SOCP formulation that constrains
 % the mean and variance of the node rate margins separately
 %

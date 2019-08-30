@@ -18,19 +18,10 @@ x = [x_task; x_comm];
 % communication requirements, agent: 2 -> 1
 qos_socp(1) = struct('flow', struct('src', 2, 'dest', 1),...
                      'margin', 0.3,...
-                     'confidence', 0.2);
+                     'confidence', 0.0025);
 % qos_socp(2) = struct('flow', struct('src', 1, 'dest', 2),...
 %                      'margin', 0.2,...
 %                      'confidence', 0.1);
-
-% % solve unconstrained-slack routing problem
-% disp('unconstrained');
-% [slack, routes, ~] = rrsocpmeanvar(x, qos_socp, false);
-% 
-% % analysis
-% figure(1);clf;
-% rrsocpinfo(x, qos_socp, routes,slack, 3)
-% title('unconstrained');
 
 % solve constrained-slack routing problem
 disp('constrained');
@@ -38,5 +29,5 @@ disp('constrained');
 
 % analysis
 figure(2);clf;
-rrsocpinfo(x, qos_socp, routes, slack, 2)
+rrsocpinfo(x, qos_socp, routes, slack, [0 0 1 0 1])
 % title('constrained');

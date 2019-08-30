@@ -3,11 +3,13 @@
 % 
 % 0                       dist
 % |-------------------------|
-% O<-------O<-------O<------O
-% x1       x3       x4      x2
-% |------->|
-% |---------------->|
 %
+% ^            O
+% |
+% O<------------------------O
+% x1                        x2
+% |----------->|
+%              x3
 
 %% parameters
 clc;clear;
@@ -15,10 +17,10 @@ clc;clear;
 rrtype = 'meanvar';
 constrain_slack = true;       % enforce slack >= 0 during optimization
 config_visualization = false; % draw the configs as they are checked
-sample_count = 100;            % discretization degree
+sample_count = 51;            % discretization degree
 dist = 13;                    % distance between task agents
 x_task = [[0;0], [dist;0]];   % task team locations
-x_comm = zeros(2,2);          % network team starting configuration
+x_comm = zeros(2,1);          % network team starting configuration
 
 if strcmp(rrtype,'meanvar')
   disp('using mean/var formulation');
@@ -48,10 +50,11 @@ Ic = (1:comm_agent_count) + task_agent_count;
 
 % parameter search space
 xspace = linspace(0, dist, sample_count);
-[x3, x4] = meshgrid(xspace, xspace);
-x3 = x3(:);
-x4 = x4(:);
-slack = zeros(size(x3)); % slack of resulting network
+yspace = xspace - xspace(ceil(length(xspace)/2));
+[x, y] = meshgrid(xspace, yspace);
+x = x(:);
+y = y(:);
+slack = zeros(size(x)); % slack of resulting network
 
 if config_visualization
   figure(1);clf; hold on;
@@ -59,10 +62,10 @@ if config_visualization
 end
 
 h = waitbar(0, 'Performing parameter search');
-for i = 1:length(x3)
+for i = 1:length(x)
     
   % new team config
-  x_new = make_config(x_task, x3(i), x4(i));
+  x_new = make_config(x_task, x(i), y(i));
   
   % find unconstrained slack
   [slack(i), ~, ~] = rroptimization(x_new(:), qos, constrain_slack);
@@ -73,7 +76,7 @@ for i = 1:length(x3)
     drawnow
   end
   
-  waitbar(i/length(x3),h);
+  waitbar(i/length(x),h);
 end
 close(h)
 
@@ -82,27 +85,27 @@ close(h)
 
 %% slack surface visualization
 
-x3_viz = reshape(x3, sample_count*[1 1]);
-x4_viz = reshape(x4, sample_count*[1 1]);
+x_viz = reshape(x, sample_count*[1 1]);
+y_viz = reshape(y, sample_count*[1 1]);
 slack_viz = reshape(slack, sample_count*[1 1]);
 
 figure(2);clf;hold on;
-surf(x3_viz, x4_viz, slack_viz, 'FaceColor', 'interp', 'EdgeColor', 'none', 'FaceAlpha', 0.8)
+surf(x_viz, y_viz, slack_viz, 'FaceColor', 'interp', 'EdgeColor', 'none', 'FaceAlpha', 0.8)
 grid on
-contour3(x3_viz, x4_viz, slack_viz, 40, 'Color', 'k', 'LineWidth', 1);
+contour3(x_viz, y_viz, slack_viz, 40, 'Color', 'k', 'LineWidth', 1);
 % contour3(x3_viz, x4_viz, slack_viz,...
 %   linspace(slack(max_idx)*0.99, slack(max_idx), 10),...
 %   'Color', 'r', 'LineWidth', 1);
-plot3(x3(max_idx), x4(max_idx), slack(max_idx), 'r.', 'MarkerSize', 30);
-xlabel('$x_3$', 'Interpreter', 'latex', 'FontSize', 18)
-ylabel('$x_4$', 'Interpreter', 'latex', 'FontSize', 18)
+plot3(x(max_idx), y(max_idx), slack(max_idx), 'r.', 'MarkerSize', 30);
+xlabel('$x$', 'Interpreter', 'latex', 'FontSize', 18)
+ylabel('$y$', 'Interpreter', 'latex', 'FontSize', 18)
 h = get(gca,'DataAspectRatio');
 set(gca,'DataAspectRatio', [1 1 1/h(1)]);
 
 %% one best configuration
 
 clc;
-x_star = make_config(x_task, x3(max_idx), x4(max_idx));
+x_star = make_config(x_task, x(max_idx), y(max_idx));
 
 figure(3);clf;
 [s, routes, status] = rroptimization(x_star(:), qos, constrain_slack);
@@ -120,9 +123,9 @@ rrsocpinfo(x_star(:), qos, routes, s);
 
 %% helper functions
 
-function x = make_config(x_task, x3, x4)
+function x = make_config(x_task, x, y)
 
-x = [x_task, [x3; 0], [x4; 0]];
+x = [x_task, [x; y]];
 
 end
 
