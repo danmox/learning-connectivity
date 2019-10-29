@@ -42,61 +42,42 @@ end
 % build mask to keep track of zero routing variables
 zero_vars = logical(repmat(eye(N), [1 1 K]));
 for k = 1:K
-  
-  % source nodes should not receive packets
-  for i = 1:length(qos(k).flow.src)
-    zero_vars(:,qos(k).flow.src(i),k) = 1;
-  end
-  
-  % destination nodes should not broadcast packets
+
+  % destination nodes should not re-broadcast packets
   for j = 1:length(qos(k).flow.dest)
     zero_vars(qos(k).flow.dest(j),:,k) = 1;
   end
 
 end
 
+idx = 1;
 for k = 1:K
-  
+
   for i = 1:N
-    
+
     Aki = Aseed;
     Bki = Bseed;
-    
-    % source node constraint
-    if any(i == qos(k).flow.src)
-      
-      Aki(i,:) = sqrt(R.var(i,:));
-      Aki(zero_vars(:,:,k)) = 0;
-      
-      Bki(i,:) = R.avg(i,:);
-      Bki(zero_vars(:,:,k)) = 0;
-      
-    % destination node constraint
-    elseif any(i == qos(k).flow.dest)
-      
-      Aki(:,i) = sqrt(R.var(:,i));
-      Aki(zero_vars(:,:,k)) = 0;
-      
-      Bki(:,i) = R.avg(:,i);
-      Bki(zero_vars(:,:,k)) = 0;
-      
-    % network node constraint
-    else
-      
-      Aki(:,i) = sqrt(R.var(:,i));
-      Aki(i,:) = sqrt(R.var(i,:));
-      Aki(zero_vars(:,:,k)) = 0;
-      
+
+    Aki(:,i) = sqrt(R.var(:,i));
+    Aki(i,:) = sqrt(R.var(i,:));
+    Aki(zero_vars(:,:,k)) = 0;
+
+    if ~any(i == qos(k).flow.dest)
       Bki(:,i) = -R.avg(:,i);
       Bki(i,:) = R.avg(i,:);
       Bki(zero_vars(:,:,k)) = 0;
-      
-    end    
+    else
+      Bki(:,i) = R.avg(:,i);  % sense of the constraint is flipped for dests
+      Bki(i,:) = -R.avg(i,:); % sense of the constraint is flipped for dests
+      Bki(zero_vars(:,:,k)) = 0;
+    end
     
-    A((k-1)*N + i, (k-1)*N*N+1:k*N*N) = Aki(:)';
-    B((k-1)*N + i, (k-1)*N*N+1:k*N*N) = Bki(:)';
-    B((k-1)*N + i, end) = -1; % slack
+    A(idx, (k-1)*N*N+1:k*N*N) = Aki(:)';
+    B(idx, (k-1)*N*N+1:k*N*N) = Bki(:)';
+    B(idx, end) = -1; % slack
     
+    idx = idx + 1;
+
   end
-    
+
 end

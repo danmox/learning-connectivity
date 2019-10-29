@@ -5,7 +5,7 @@ x = 0:0.1:40; % distance between agents
 
 % build stochastic confidence regions
 Uij_approx = zeros(5,length(x));
-[Rij, Vij] = stochastic_channel(x);
+[Rij, Vij] = channel_model(x);
 counter = 1;
 for k = -2:2
   Uij_approx(counter,:) = Rij + k*sqrt(Vij);

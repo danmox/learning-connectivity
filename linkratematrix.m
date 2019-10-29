@@ -18,7 +18,7 @@ R.var = zeros(N,N);
 for i = 1:N
   for j = i+1:N
     d = norm(x(2*i-1:2*i) - x(2*j-1:2*j));
-    [R.avg(i,j), R.var(i,j)] = stochastic_channel(d);
+    [R.avg(i,j), R.var(i,j)] = channel_model(d);
   end
 end
 R.avg = R.avg + triu(R.avg,1)';

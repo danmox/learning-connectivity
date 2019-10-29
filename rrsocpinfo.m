@@ -61,8 +61,8 @@ end
 if verbosity(2)
   % distance and channel information
   channel_info = table(round(squareform(pdist(reshape(x,[2 N])')),2),...
-    round(R.avg,2),...
-    round(R.var,2),...
+    round(R.avg,3),...
+    round(R.var,3),...
     'VariableNames', {'distance','R_avg','R_var'})
 end
 
@@ -80,26 +80,26 @@ end
 %% constraints at optimality
 
 if verbosity(4)
-  % node margin bounds
+  
+  % confidence threshold
+  conf = ones(N,K).*norminv(horzcat(qos(:).confidence), 0, 1);
+  conf = reshape(conf, [N*K 1]);
+  
+  % node margins
   m_ik = zeros(N,K);
   for k = 1:K
-    m_ik(union(qos(k).flow.src, qos(k).flow.dest),k) = qos(k).margin;
+    m_ik([qos(k).flow.src qos(k).flow.dest],k) = qos(k).margin;
   end
+  m_ik = reshape(m_ik, [N*K 1]);
   
   % constraints
   [A,B] = nodemarginconsts(qos, linkratematrix(x));
   y = [routes(:); 0];
-  mean_lhs = zeros(N,K);
-  var_lhs = zeros(N,K);
-  for k = 1:K
-    for n = 1:N
-      i = (k-1)*N + n;
-      mean_lhs(n,k) = B(i,:)*y - m_ik(n,k);
-      var_lhs(n,k) = norm(diag(A(i,:))*y);
-    end
-  end
-  table(mean_lhs, slack*ones(N,K), var_lhs, sqrt(horzcat(qos(:).confidence).*ones(N,K)),...
-    'VariableNames', {'mean_lhs', 'slack', 'var_lhs', 'confidence'})
+  lhs = (B*y - m_ik - slack)./vecnorm(A.*(y'),2,2);
+  margin = B*y;
+  var = vecnorm(A.*(y'),2,2).^2;
+  table(slack*ones(size(lhs)), lhs, conf, margin, var,...
+    'VariableNames', {'slack', 'lhs', 'confidence', 'margin', 'var'})
 end
     
 %% plot routes

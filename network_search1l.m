@@ -18,7 +18,7 @@ dist = 13;                    % distance between task agents
 x_task = [[0;0], [dist;0]];  % task team locations
 x_comm = zeros(2,1);          % network team starting configuration
 
-rroptimization = @rrsocpmeanvar;
+rroptimization = @rrsocpprobconf;
 
 % communication requirements, agent: 2 -> 1
 qos(1) = struct('flow', struct('src', 2, 'dest', 1),...

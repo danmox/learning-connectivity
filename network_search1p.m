@@ -14,31 +14,23 @@
 %% parameters
 clc;clear;
 
-rrtype = 'meanvar';
 constrain_slack = true;       % enforce slack >= 0 during optimization
 config_visualization = false; % draw the configs as they are checked
-sample_count = 51;            % discretization degree
-dist = 13;                    % distance between task agents
+sample_count = 31;            % discretization degree
+dist = 15;                    % distance between task agents
 x_task = [[0;0], [dist;0]];   % task team locations
 x_comm = zeros(2,1);          % network team starting configuration
 
-if strcmp(rrtype,'meanvar')
-  disp('using mean/var formulation');
-  rroptimization = @rrsocpmeanvar;
+disp('using probabilistic confidence formulation');
+rroptimization = @rrsocpprobconf;
 
-  % communication requirements, agent: 2 -> 1
-  qos(1) = struct('flow', struct('src', 2, 'dest', 1),...
-    'margin', 0.3,...   % min rate margin
-    'confidence', 0.1); % variance bound
-else
-  disp('using probabilistic confidence formulation');
-  rroptimization = @rrsocpprobconf;
-
-  % communication requirements, agent: 2 -> 1
-  qos(1) = struct('flow', struct('src', 2, 'dest', 1),...
-    'margin', 0.1,...   % rate margin min
-    'confidence', 0.8); % probabilistic confidence
-end
+% communication requirements, agent: 2 -> 1
+qos(1) = struct('flow', struct('src', 2, 'dest', 1),...
+  'margin', 0.05,...   % rate margin min
+  'confidence', 0.7);  % probabilistic confidence
+qos(2) = struct('flow', struct('src', 1, 'dest', 2),...
+  'margin', 0.05,...   % rate margin min
+  'confidence', 0.7);  % probabilistic confidence
 
 % indexing
 task_agent_count = size(x_task,2);
@@ -109,7 +101,7 @@ x_star = make_config(x_task, x(max_idx), y(max_idx));
 
 figure(3);clf;
 [s, routes, status] = rroptimization(x_star(:), qos, constrain_slack);
-rrsocpinfo(x_star(:), qos, routes, s);
+rrsocpinfo(x_star(:), qos, routes, s, [0 0 1 0 1]);
 
 %% debug configs
 

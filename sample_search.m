@@ -86,18 +86,24 @@ fprintf('slack improvement = %.4f\n', slack_star - slack_init);
 %% figure
 
 figure(2);clf;hold on;
+colormap('parula')
 surf(x3_viz, x4_viz, slack_viz, 'FaceColor', 'interp', 'EdgeColor', 'none', 'FaceAlpha', 0.8)
+colorbar
 grid on
-contour3(x3_viz, x4_viz, slack_viz, 40, 'Color', 'k', 'LineWidth', 1);
-plot3(samples(1,:), samples(2,:), slack(max_idx)*ones(1,size(samples,2)),...
+contour3(x3_viz, x4_viz, slack_viz, 40, 'Color', 'k') %, 'LineWidth', 1);
+p1 = plot3(samples(1,:), samples(2,:), slack(max_idx)*ones(1,size(samples,2)),...
   '.', 'Color', 0.4*ones(1,3), 'MarkerSize', 10);
-plot3([x0(1,3) path(1,:)], [x0(1,4) path(2,:)],...
-  slack(max_idx)*ones(1,size(path,2)+1)+0.1, 'r', 'LineWidth', 2);
-plot3(x0(1,Ic(1)), x0(1,Ic(2)), slack(max_idx)+0.1, 'r.', 'MarkerSize', 30);
-plot3(x(1,Ic(1)),  x(1,Ic(2)),  slack(max_idx)+0.1, 'x', 'MarkerSize', 15,...
-  'color', 'r', 'LineWidth', 3);
-xlabel('$x_3$', 'Interpreter', 'latex', 'FontSize', 18)
-ylabel('$x_4$', 'Interpreter', 'latex', 'FontSize', 18)
+p2 = plot3([x0(1,3) path(1,:)], [x0(1,4) path(2,:)],...
+  slack(max_idx)*ones(1,size(path,2)+1)+0.1, 'r', 'LineWidth', 3);
+p3 = plot3(x0(1,Ic(1)), x0(1,Ic(2)), slack(max_idx)+0.2, 'k.', 'MarkerSize', 30);
+p4 = plot3(x(1,Ic(1)),  x(1,Ic(2)),  slack(max_idx)+0.2, 'kx', 'MarkerSize', 15,...
+  'LineWidth', 4);
+xlabel('$x_3$', 'Interpreter', 'latex', 'FontSize', 20)
+ylabel('$x_4$', 'Interpreter', 'latex', 'FontSize', 20)
+title(sprintf('$s_0 = %.3f, s_f = %.3f$', slack_init, slack_star),...
+  'Interpreter', 'latex', 'FontSize', 22);
+legend([p1 p3 p4], {'$x_P$', '$x_0$', '$x^*$'}, 'Interpreter', 'latex',...
+  'FontSize', 20);
 h = get(gca,'DataAspectRatio');
 set(gca,'DataAspectRatio', [1 1 1/h(1)]);
 

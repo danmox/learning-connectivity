@@ -1,4 +1,4 @@
-function [slack_var, routing_vars, status] = rrsocpprobconf(x, qos, constrain_slack)
+function [output, routing_vars, status] = rrsocpprobconf(x, qos, constrain_slack)
 % RRSOCPPROBCONF solve the robust routing SOCP formulation that utilizes
 % probability constraints on the network node margins
 %
@@ -31,33 +31,33 @@ R = linkratematrix(x);
 %% Solve SOCP
 
 % confidence threshold
-conf = norminv(vertcat(qos(:).confidence), 0, 1);
+conf = ones(N,K).*norminv(horzcat(qos(:).confidence), 0, 1);
+conf = reshape(conf, [N*K 1]);
 
 % node margins
 m_ik = zeros(N,K);
 for k = 1:K
-  for i = 1:length(qos(k).flow.src)
-    m_ik(qos(k).flow.src(i),k) = qos(:).margin;
-  end
+  m_ik([qos(k).flow.src qos(k).flow.dest],k) = qos(k).margin;
 end
+m_ik = reshape(m_ik, [N*K 1]);
 
 % slack bound
 slack_bound = 0;
 if ~constrain_slack
-  slack_bound = -1e10; % sufficiently large number to be unconstrained
+  slack_bound = -1e2; % sufficiently large number to be unconstrained
 end
 
+num_const = size(A,1);
 cvx_begin quiet
   variables routing_vars(N,N,K) slack_var
   y = [routing_vars(:); slack_var];
-  expression lhs(N,K)
-  expression rhs(N,K)
-  for k = 1:K
-    for n = 1:N
-      i = (k-1)*N + n;
-      lhs(n,k) = norm( diag( A(i,:) ) * y );
-      rhs(n,k) = (B(i,:)*y - m_ik(n,k)) / conf(k);
-    end
+  expression lhs(num_const,1)
+  expression rhs(num_const,1)
+  expression min_margin
+%   min_margin = min(B*y - m_ik);
+  for i = 1:num_const
+    lhs(i) = norm(diag(A(i,:))*y);
+    rhs(i) = (B(i,:)*y - m_ik(i)) / conf(i);
   end
   maximize( slack_var )
   subject to
@@ -66,7 +66,9 @@ cvx_begin quiet
     sum( sum(routing_vars, 3), 2) <= 1
     sum( sum(routing_vars, 3), 1) <= 1
     slack_var >= slack_bound
-    routing_vars(zero_vars_mask) == 0
+%     routing_vars(zero_vars_mask) == 0
 cvx_end
+
+output = slack_var;
 
 status = ~isnan(slack_var); % check if a solution has been found

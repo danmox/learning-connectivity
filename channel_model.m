@@ -1,24 +1,19 @@
-function cm = channel_model()
-% CHANNEL_MODEL a function returning the parameters of a stochastic channel
-% model
-%
-% outputs:
-%   cm.L0       - transmit power (dBm)
-%   cm.n        - decay rate
-%   cm.sigma_F2 - noise variance
-%   cm.PN0      - noise at receiver (mW)
+function [rate, var] = channel_model(d)
 
-% from Jon Fink thesis page 104
-cm = struct();
-cm.L0 = -53;            % transmit power (dBm)
-cm.PL0 = dBm2mW(cm.L0); % transmit power (mW)
-cm.n = 2.52;            % decay rate
-cm.sigma_F2 = 40;       % noise variance
-N0 = -70;               % noise at receiver (dBm)
-cm.PN0 = dBm2mW(N0);    % noise at receiver (mW)
+cm = channel_params();
 
-% % model parameters (I chose)
-% L0 = -50.6;      % dBm
-% n = 2.75;        % decay rate
-% sigma_F2 = 40.5; % variance of noise, ~N(0,sigma_F2)
-% N0 = -70;        % noise at receiver (dBm)
+% compute link rate
+PR = cm.L0 - 10*cm.n*log10(d); % dBm
+P = dBm2mW(PR); % mW
+rate = 1 - erfc(sqrt(P./cm.PN0));
+
+% use sigmoid approximation to variance
+var = (cm.a*d./(cm.b + d)).^2;
+
+% % compute link variance (using delta method approximation)
+% var = (log(10)/(10*sqrt(cm.PN0*pi))*exp(-P/cm.PN0).*10.^(PR/20)).^2*cm.sigma_F2;
+% if isnan(var)
+%   var = eps;
+% end
+
+end
