@@ -10,7 +10,7 @@ function cm = channel_params()
 
 % from Jon Fink thesis page 104
 cm = struct();
-cm.L0 = -53;            % transmit power (dBm)
+cm.L0 = -48;            % transmit power (dBm)
 cm.PL0 = dBm2mW(cm.L0); % transmit power (mW)
 cm.n = 2.52;            % decay rate
 cm.sigma_F2 = 40;       % noise variance

@@ -21,8 +21,8 @@ qos_socp(1) = struct('flow', struct('src', 2, 'dest', 1),...
 
 % solve routing problem
 constrain_slack = false;
-[slack, routes, ~] = rrsocpprobconf(x, qos_socp, false);
+[slack, routes, ~] = rrsocpprobconf(x, qos_socp, true);
 
 % analysis
-figure;clf;
+figure(1);clf;
 rrsocpinfo(x,qos_socp,routes,slack,[1 1 1 1 1])

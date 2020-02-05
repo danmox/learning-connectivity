@@ -16,7 +16,7 @@ clc;clear;
 
 constrain_slack = true;       % enforce slack >= 0 during optimization
 config_visualization = false; % draw the configs as they are checked
-sample_count = 31;            % discretization degree
+sample_count = 21;            % discretization degree
 dist = 15;                    % distance between task agents
 x_task = [[0;0], [dist;0]];   % task team locations
 x_comm = zeros(2,1);          % network team starting configuration
@@ -26,11 +26,8 @@ rroptimization = @rrsocpprobconf;
 
 % communication requirements, agent: 2 -> 1
 qos(1) = struct('flow', struct('src', 2, 'dest', 1),...
-  'margin', 0.05,...   % rate margin min
-  'confidence', 0.7);  % probabilistic confidence
-qos(2) = struct('flow', struct('src', 1, 'dest', 2),...
-  'margin', 0.05,...   % rate margin min
-  'confidence', 0.7);  % probabilistic confidence
+  'margin', 0.25,...   % rate margin min
+  'confidence', 0.90);  % probabilistic confidence
 
 % indexing
 task_agent_count = size(x_task,2);
@@ -41,7 +38,8 @@ Ic = (1:comm_agent_count) + task_agent_count;
 %% parameter search
 
 % parameter search space
-xspace = linspace(0, dist, sample_count);
+padding = dist*0.2;
+xspace = linspace(0-padding, dist+padding, sample_count);
 yspace = xspace - xspace(ceil(length(xspace)/2));
 [x, y] = meshgrid(xspace, yspace);
 x = x(:);

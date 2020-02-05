@@ -1,4 +1,4 @@
-function [output, routing_vars, status] = rrsocpprobconf(x, qos, constrain_slack)
+function [output, routing_vars, status] = rrsocpprobconf(x, qos, constrain_slack, e)
 % RRSOCPPROBCONF solve the robust routing SOCP formulation that utilizes
 % probability constraints on the network node margins
 %
@@ -20,6 +20,10 @@ function [output, routing_vars, status] = rrsocpprobconf(x, qos, constrain_slack
 %   status       - the status of the LP; if isnan(status) == true then no
 %                  feasible was found
 
+if nargin < 4
+  e = 0.0;
+end
+
 N = size(x,1)/2;
 K = length(qos);
 
@@ -31,7 +35,7 @@ R = linkratematrix(x);
 %% Solve SOCP
 
 % confidence threshold
-conf = ones(N,K).*norminv(horzcat(qos(:).confidence), 0, 1);
+conf = ones(N,K).*norminv(horzcat(qos(:).confidence) + e, 0, 1);
 conf = reshape(conf, [N*K 1]);
 
 % node margins
@@ -54,7 +58,6 @@ cvx_begin quiet
   expression lhs(num_const,1)
   expression rhs(num_const,1)
   expression min_margin
-%   min_margin = min(B*y - m_ik);
   for i = 1:num_const
     lhs(i) = norm(diag(A(i,:))*y);
     rhs(i) = (B(i,:)*y - m_ik(i)) / conf(i);
@@ -66,7 +69,7 @@ cvx_begin quiet
     sum( sum(routing_vars, 3), 2) <= 1
     sum( sum(routing_vars, 3), 1) <= 1
     slack_var >= slack_bound
-%     routing_vars(zero_vars_mask) == 0
+    routing_vars(zero_vars_mask) == 0
 cvx_end
 
 output = slack_var;
