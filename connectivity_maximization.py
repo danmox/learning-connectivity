@@ -67,11 +67,6 @@ def connectivity_distance_test():
     plt.show()
 
 
-def exp_rate(cm, xi, xj):
-    r, _ = cm.predict(np.vstack((xi, xj)))
-    return r[0,1]
-
-
 def derivative_test():
 
     cm = ChannelModel(print_values=False)
@@ -84,16 +79,15 @@ def derivative_test():
 
     rate = np.zeros((pts,))
     for i in range(pts):
-        rate[i] = exp_rate(cm, xi, xj[i,:])
+        rate[i], _ = cm.predict_link(xi, xj[i,:])
 
     idx = random.randint(0,pts)
     step = 20
     start_idx = max(idx-20, 0)
     end_idx = min(idx+20, pts)
-    Rxixj = exp_rate(cm, xi, xj[idx,:])
+    Rxixj, _ = cm.predict_link(xi, xj[idx,:])
     dRdxi = cm.derivative(xi, xj[idx,:])
     dRdxj = cm.derivative(xj[idx,:], xi)
-    # import pdb; pdb.set_trace()
     Rtaylor = Rxixj + np.matmul(dRdxi.T, (xi - xi)) \
         + np.matmul(dRdxj.T, (xj[start_idx:end_idx,:] - xj[idx,:]).T)
 
@@ -129,7 +123,7 @@ def local_controller(gc, x0, comm_agent_idcs, step_size):
                 continue
             xi = x0[i,:]
             xj = x0[j,:]
-            Rxixj = exp_rate(gc.cm, xi, xj)
+            Rxixj, _ = gc.cm.predict_link(xi, xj)
             dRdxi = gc.cm.derivative(xi, xj)
             dRdxj = gc.cm.derivative(xj, xi)
             if i in comm_agent_idcs and j in comm_agent_idcs:
