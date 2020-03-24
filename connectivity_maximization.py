@@ -8,6 +8,7 @@ from math import pi
 import random
 import cvxpy as cp
 from scipy.linalg import null_space
+import time as systime
 
 
 def circle_points(rad, num_points):
@@ -19,8 +20,8 @@ def circle_points(rad, num_points):
 
 
 class ConnectivityOpt:
-    def __init__(self, print_values=True, n0=-70.0, n=2.52, l0=-53.0, a=0.2, b=6.0,
-                 x_task=None, x_comm=None):
+    def __init__(self, x_task=None, x_comm=None,
+                 print_values=False, n0=-70.0, n=2.52, l0=-53.0, a=0.2, b=6.0):
         self.cm = ChannelModel(print_values=print_values, n0=n0, n=n, l0=l0, a=a, b=b)
         self.x_task = x_task
         self.x_comm = x_comm
@@ -30,8 +31,8 @@ class ConnectivityOpt:
             self.comm_count = self.x_comm.shape[0]
             self.comm_idcs = range(self.x_task.shape[0], self.agent_count)
 
-    def connectivity(self, x):
-        rate, _ = self.cm.predict(x)
+    def connectivity(self):
+        rate, _ = self.cm.predict(self.config)
         lap = np.diag(np.sum(rate, axis=1)) - rate
         v, _ = np.linalg.eigh(lap)
         return v[1]
@@ -95,15 +96,26 @@ class ConnectivityOpt:
 
         self.x_comm = x.value
         self.config[self.comm_idcs] = self.x_comm
-        return self.connectivity(self.config)
+        return self.connectivity()
+
+    def maximize_connectivity(self, step_size=0.2, tol=1e-10, max_its=1000):
+
+        update = 1.0
+        lambda2_prev = 0.0
+        it = 0
+        while update > tol and it < 1000:
+            lambda2 = self.update_network_config(step_size)
+            update = lambda2 - lambda2_prev
+            lambda2_prev = lambda2
+            it += 1
+
+        return lambda2, it
 
 
 def channel_derivative_quiver():
-    cm = ChannelModel()
-
     xi = np.asarray([0.0, 0.0])
     xj = np.asarray([1.0, 1.0])
-    cm = ChannelModel()
+    cm = ChannelModel(print_values=False)
     xy = np.zeros((0,2))
     for i in range(3,30,3):
         xy = np.vstack((xy, circle_points(i, 5)))
@@ -124,12 +136,12 @@ def connectivity_distance_test():
 
     x_task = circle_points(task_rad, 3)
 
-    co = ConnectivityOpt(print_values=False)
     rad = np.linspace(0.1, 20.0, num=lambda2_points, endpoint=False)
     lambda2 = np.zeros_like(rad)
     for i in range(lambda2_points):
         x_comm = circle_points(rad[i], comm_agent_count)
-        lambda2[i] = co.connectivity(np.vstack((x_task, x_comm)))
+        co = ConnectivityOpt(x_task=x_task, x_comm=x_comm)
+        lambda2[i] = co.connectivity()
 
     fig, ax = plt.subplots()
     ax.plot(rad, lambda2)
@@ -138,7 +150,7 @@ def connectivity_distance_test():
 
 def derivative_test():
 
-    cm = ChannelModel(print_values=False)
+    cm = ChannelModel()
 
     pts = 100
     xi = np.asarray([0, 0])
@@ -167,34 +179,123 @@ def derivative_test():
     plt.show()
 
 
-def algebraic_connectivity_sdp():
+def acsdp_circle_test():
 
-    x_task = np.asarray([[0.0, 0.0], [10.0, 20.0], [20.0, 0.0]])
-    x_comm = np.asarray([[-2.0, 5.0], [25.0, 10.0]])
+    # NOTE requires 1e-10 to separate
+    # x_task = np.asarray([[0.0, 0.0], [10.0, 20.0], [20.0, 0.0]])
+    # x_comm = np.asarray([[-2.0, 5.0], [25.0, 10.0]])
+
+    # NOTE position wiggle at end up meets convergence criterion
+    # x_task = np.asarray([[0.0, 0.0], [10.0, 20.0], [20.0, 0.0]])
     # x_comm = np.asarray([[2.0, 0.0], [4.0, 0.0]])
-    # x_comm = np.asarray([[2.0, 0.0], [4.0, 0.0], [20.0, 10.0]])
+
+    # NOTE can start in a cluster if not at a "local minimum"
+    # x_task = np.asarray([[0.0, 0.0], [10.0, 20.0], [20.0, 0.0]])
+    # x_comm = np.zeros((3,2))
+
+    # NOTE very slow convergence: lambda2 effectively flatlines after ~40-60
+    # iterations but the positions appreciably change until the end
+    # x_task = circle_points(20, 8)
+    # x_comm = np.zeros((8, 2)) + np.random.normal(0.0, 0.01, (8, 2))
+
+    # NOTE same convergence behavior as above; however, despite starting from a
+    # different initial config (close to the task agents) the final
+    # configuration is often the same
+    x_task = circle_points(20, 8)
+    x_comm = circle_points(14, 8) + np.random.normal(0.0, 0.01, (8,2))
+
     step_size = 0.2
+    tol = 1e-10
 
-    co = ConnectivityOpt(print_values=False, x_task=x_task, x_comm=x_comm)
+    co = ConnectivityOpt(x_task=x_task, x_comm=x_comm)
 
-    fig, ax = plt.subplots()
-    plot_config(numpy_to_ros(np.vstack((x_task, x_comm))), ax=ax, show=True, pause=1.0,
-                title="lambda 2 = {:.3f}".format(co.connectivity(np.vstack((x_task, x_comm)))))
+    fig, axes = plt.subplots(1,2)
 
     update = 1.0
     lambda20 = 0.0
     it = 1
-    while (update > 1e-10):
+    lambda2_hist = np.zeros((1,))
+    lambda2_hist[0] = co.connectivity()
+    while (update > tol):
         lambda2 = co.update_network_config(step_size)
-        plot_config(numpy_to_ros(co.config), ax=ax, clear_axes=True, show=True, pause=0.01,
+        lambda2_hist = np.append(lambda2_hist, np.asarray([lambda2]))
+        plot_config(numpy_to_ros(co.config), ax=axes[0], clear_axes=True, show=False,
                     title="it: {:3d}, lambda 2 = {:.3f}".format(it, lambda2))
+        axes[1].cla()
+        axes[1].plot(range(0,it+1), lambda2_hist, 'r', linewidth=2)
+        axes[1].set_title("update = {:.4e}".format(lambda2-lambda20))
+        plt.tight_layout()
+        plt.pause(0.01)
         update = lambda2 - lambda20
         lambda20 = lambda2
         it += 1
 
     print("best lambda2 = {:.6f}".format(lambda2))
-    plot_config(numpy_to_ros(co.config), ax=ax, clear_axes=True, show=True,
+    plot_config(numpy_to_ros(co.config), ax=axes[0], clear_axes=True, show=False,
                 title="total its: {:3d}, lambda 2 = {:.3f}".format(it-1, lambda2))
+    axes[1].cla()
+    axes[1].plot(range(0,it), lambda2_hist, 'r', linewidth=2)
+    axes[1].set_title("update = {:.4e}".format(update))
+    plt.tight_layout()
+    plt.show()
+
+
+def scale_test():
+
+    test_trials = 10 # how many times to run each test
+    circle_rad = 20
+    agent_count = np.asarray([4, 6, 8, 12, 16, 20])
+    time = np.zeros((agent_count.size,2)) # mean, std
+    its = np.zeros((agent_count.size,2)) # mean, std
+
+    for i in range(agent_count.size):
+        team_size = agent_count[i] / 2
+        x_task = circle_points(circle_rad, team_size)
+        x_comm = np.zeros((team_size, 2)) + np.random.normal(0.0, 0.01, (team_size, 2))
+
+        trial_times = np.zeros(test_trials)
+        trial_its = np.zeros(test_trials)
+        for j in range(test_trials):
+            co = ConnectivityOpt(x_task, x_comm)
+            t0 = systime.time()
+            lambda2, trial_its[j]  = co.maximize_connectivity()
+            trial_times[j] = systime.time() - t0
+            if j == 0:
+                plot_config(numpy_to_ros(co.config), show=True)
+
+        print(trial_times)
+        print(trial_its)
+        time[i,0] = np.mean(trial_times)
+        time[i,1] = np.std(trial_times)
+        its[i,0] = np.mean(trial_its)
+        its[i,1] = np.std(trial_its)
+
+    fig, ax1 = plt.subplots()
+
+    color = 'tab:blue'
+    ax1.set_xlabel('agent count')
+    ax1.set_ylabel('time (s)', color=color)
+    ax1.errorbar(agent_count, time[:,0], yerr=time[:,1], color=color, linewidth=2)
+    ax1.tick_params(axis='y', labelcolor=color)
+
+    ax2 = ax1.twinx()
+
+    color = 'tab:red'
+    ax2.set_ylabel('iterations', color=color)
+    ax2.errorbar(agent_count, its[:,0], yerr=its[:,1], color=color, linewidth=2)
+    ax2.tick_params(axis='y', labelcolor=color)
+
+    fig.tight_layout()
+    plt.show()
+
+
+def run_all_tests():
+    channel_derivative_quiver()
+    connectivity_distance_test()
+    derivative_test()
+    acsdp_circle_test()
+    scale_test()
+
 
 if __name__ == '__main__':
-    algebraic_connectivity_sdp()
+    acsdp_circle_test()
