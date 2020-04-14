@@ -103,13 +103,20 @@ class ConnectivityOpt:
         update = 1.0
         lambda2_prev = 0.0
         it = 0
+        it_times = []
         while update > tol and it < 1000:
+            t0 = systime.time()
             lambda2 = self.update_network_config(step_size)
+            it_times += [systime.time() - t0]
             update = lambda2 - lambda2_prev
             lambda2_prev = lambda2
             it += 1
 
-        return lambda2, it
+        np_it_times = np.asarray(it_times)
+        it_time_avg = np.mean(np_it_times)
+        it_time_std = np.std(np_it_times)
+
+        return lambda2, it, it_time_avg, it_time_std
 
 
 def channel_derivative_quiver():
@@ -181,7 +188,7 @@ def derivative_test():
 
 def acsdp_circle_test():
 
-    # NOTE requires 1e-10 to separate
+    # NOTE requires 1e-9 to separate
     # x_task = np.asarray([[0.0, 0.0], [10.0, 20.0], [20.0, 0.0]])
     # x_comm = np.asarray([[-2.0, 5.0], [25.0, 10.0]])
 
@@ -201,13 +208,20 @@ def acsdp_circle_test():
     # NOTE same convergence behavior as above; however, despite starting from a
     # different initial config (close to the task agents) the final
     # configuration is often the same
-    x_task = circle_points(20, 8)
-    x_comm = circle_points(14, 8) + np.random.normal(0.0, 0.01, (8,2))
+    # team_size = 8
+    # x_task = circle_points(20, team_size)
+    # x_comm = circle_points(18, team_size)
+
+    # NOTE
+    team_size = 5
+    x_task = circle_points(20.0, team_size)
+    x_comm = circle_points(0.2, team_size)
 
     step_size = 0.2
     tol = 1e-10
 
     co = ConnectivityOpt(x_task=x_task, x_comm=x_comm)
+    plot_config(numpy_to_ros(co.config), title="initial config")
 
     fig, axes = plt.subplots(1,2)
 
@@ -230,38 +244,49 @@ def acsdp_circle_test():
         lambda20 = lambda2
         it += 1
 
-    print("best lambda2 = {:.6f}".format(lambda2))
     plot_config(numpy_to_ros(co.config), ax=axes[0], clear_axes=True, show=False,
-                title="total its: {:3d}, lambda 2 = {:.3f}".format(it-1, lambda2))
+                title="total its: {:3d}".format(it-1))
     axes[1].cla()
     axes[1].plot(range(0,it), lambda2_hist, 'r', linewidth=2)
-    axes[1].set_title("update = {:.4e}".format(update))
+    axes[1].set_title("lambda 2 = {:.3f}".format(lambda2))
     plt.tight_layout()
     plt.show()
 
 
 def scale_test():
 
-    test_trials = 10 # how many times to run each test
+    def worker(x_task, x_comm, t_avg, t_std, time, its, k):
+        co = ConnectivityOpt(x_task, x_comm)
+        t0 = systime.time()
+        lambda2, its[k], t_avg[k], t_std[k] = co.maximize_connectivity()
+        time[k] = systime.time() - t0
+        return
+
+    test_trials = 1 # how many times to run each test
     circle_rad = 20
-    agent_count = np.asarray([4, 6, 8, 12, 16, 20])
+    # agent_count = np.asarray([4, 5, 6, 8, 10, 12, 14])
+    agent_count = np.arange(4,20,2)
     time = np.zeros((agent_count.size,2)) # mean, std
-    its = np.zeros((agent_count.size,2)) # mean, std
+    its = np.zeros((agent_count.size,2))  # mean, std
+    ittime = np.zeros((agent_count.size,2)) # mean, std
 
     for i in range(agent_count.size):
         team_size = agent_count[i] / 2
         x_task = circle_points(circle_rad, team_size)
-        x_comm = np.zeros((team_size, 2)) + np.random.normal(0.0, 0.01, (team_size, 2))
+        x_comm = circle_points(0.2, team_size) # np.zeros((team_size, 2)) + np.random.normal(0.0, 0.05, (team_size, 2))
 
         trial_times = np.zeros(test_trials)
         trial_its = np.zeros(test_trials)
+        it_time_avg = np.zeros(test_trials)
+        it_time_std = np.zeros(test_trials)
+        print("running {:2d} trials for {:2d} agents".format(test_trials, agent_count[i]))
         for j in range(test_trials):
-            co = ConnectivityOpt(x_task, x_comm)
-            t0 = systime.time()
-            lambda2, trial_its[j]  = co.maximize_connectivity()
-            trial_times[j] = systime.time() - t0
-            if j == 0:
-                plot_config(numpy_to_ros(co.config), show=True)
+            worker(x_task, x_comm, it_time_avg, it_time_std, trial_times, trial_its, j)
+
+        # co = ConnectivityOpt(x_task, x_comm)
+        # plot_config(numpy_to_ros(co.config), show=True)
+        # co.maximize_connectivity()
+        # plot_config(numpy_to_ros(co.config), show=True)
 
         print(trial_times)
         print(trial_its)
@@ -269,8 +294,10 @@ def scale_test():
         time[i,1] = np.std(trial_times)
         its[i,0] = np.mean(trial_its)
         its[i,1] = np.std(trial_its)
+        ittime[i,0] = np.mean(it_time_avg)
+        ittime[i,1] = np.mean(it_time_std) # yes, mean
 
-    fig, ax1 = plt.subplots()
+    fig1, ax1 = plt.subplots()
 
     color = 'tab:blue'
     ax1.set_xlabel('agent count')
@@ -285,7 +312,13 @@ def scale_test():
     ax2.errorbar(agent_count, its[:,0], yerr=its[:,1], color=color, linewidth=2)
     ax2.tick_params(axis='y', labelcolor=color)
 
-    fig.tight_layout()
+    fig1.tight_layout()
+
+    fig2, ax3 = plt.subplots()
+    ax3.errorbar(agent_count, ittime[:,0], yerr=ittime[:,1], linewidth=2)
+    ax3.set_ylabel('time (s)')
+    ax3.set_xlabel('agent count')
+
     plt.show()
 
 
