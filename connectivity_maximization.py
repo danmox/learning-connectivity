@@ -1,8 +1,6 @@
-#!/usr/bin/env python
-
 import matplotlib.pyplot as plt
 import numpy as np
-from socp.rr_socp import ChannelModel
+from socp.channel_model import ChannelModel
 from socp.rr_socp_tests import plot_config, numpy_to_ros
 from math import pi
 import random
@@ -91,7 +89,7 @@ class ConnectivityOpt:
         prob = cp.Problem(cp.Maximize(gamma), constraints)
         prob.solve()
 
-        if prob.status is not 'optimal':
+        if prob.status != 'optimal':
             print(prob.status)
 
         self.x_comm = x.value
@@ -156,6 +154,8 @@ def connectivity_distance_test():
 
 
 def derivative_test():
+
+    print('running derivative_test()')
 
     cm = ChannelModel()
 
@@ -331,4 +331,4 @@ def run_all_tests():
 
 
 if __name__ == '__main__':
-    acsdp_circle_test()
+    derivative_test()
