@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from socp.channel_model import ChannelModel
+from socp.channel_model import PiecewiseChannel, ChannelModel
 from socp.rr_socp_tests import plot_config, numpy_to_ros
 from math import pi
 import random
@@ -157,7 +157,7 @@ def derivative_test():
 
     print('running derivative_test()')
 
-    cm = ChannelModel()
+    cm = PiecewiseChannel()
 
     pts = 100
     xi = np.asarray([0, 0])
