@@ -64,7 +64,6 @@ def generate_hdf5_data(hdf5_file, mode, sample_count, params):
     bbx = params['bbx']
     t0 = time.time()
     comm_idcs = np.arange(params['comm_agents']) + params['task_agents']
-    task_samples = np.random.random((pa))
 
     for i in range(sample_count):
 
