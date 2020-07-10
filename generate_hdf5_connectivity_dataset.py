@@ -37,7 +37,18 @@ def human_readable_duration(dur):
     return ' '.join(t_str)
 
 
-def generate_hdf5_data(hdf5_file, mode, sample_count, params):
+def kernelized_config_img(config, params):
+
+    img = np.zeros(params['img_size'])
+    for agent in config:
+        dist = np.linalg.norm(params['xy'] - agent, axis=2)
+        mask = dist < 3.0*params['kernel_std']
+        img[mask] = np.maximum(img[mask], norm.pdf(dist[mask], scale=params['kernel_std']))
+    img *= 255.0 / norm.pdf(0, scale=params['kernel_std']) # normalize image to [0.0, 255.0]
+    return np.clip(img, 0, 255)
+
+
+def generate_hdf5_image_data(hdf5_file, mode, sample_count, params):
 
     # initialize hdf5 datastructure
     #
@@ -54,9 +65,9 @@ def generate_hdf5_data(hdf5_file, mode, sample_count, params):
     hdf5_grp = hdf5_file.create_group(mode)
 
     hdf5_grp.create_dataset('task_config', (sample_count, params['task_agents'], 2), np.float64)
-    hdf5_grp.create_dataset('init_img', (sample_count,) + params['img_size'], np.uint8)
+    hdf5_grp.create_dataset('task_img', (sample_count,) + params['img_size'], np.uint8)
     hdf5_grp.create_dataset('comm_config', (sample_count, params['comm_agents'], 2), np.float64)
-    hdf5_grp.create_dataset('final_img', (sample_count,) + params['img_size'], np.uint8)
+    hdf5_grp.create_dataset('comm_img', (sample_count,) + params['img_size'], np.uint8)
     hdf5_grp.create_dataset('connectivity', (sample_count,), np.float64)
 
     # image generation loop
@@ -71,11 +82,8 @@ def generate_hdf5_data(hdf5_file, mode, sample_count, params):
         task_config = np.random.random((params['task_agents'],2)) * (bbx[1::2] - bbx[0::2]) + bbx[0::2]
         hdf5_grp['task_config'][i,...] = task_config
 
-        # initial configuration of task agents as binary image
-        init_img = np.zeros(params['img_size'], dtype=np.uint8)
-        subs = pos_to_subs(params['meters_per_pixel'], task_config)
-        init_img[subs[:,0], subs[:,1]] = 1
-        hdf5_grp['init_img'][i,...] = init_img
+        # configuration of task agents as image
+        hdf5_grp['task_img'][i,...] = kernelized_config_img(task_config, params)
 
         # configuration of network agents as numpy array
         comm_config = np.random.random((params['comm_agents'],2)) * (bbx[1::2] - bbx[0::2]) + bbx[0::2]
@@ -84,11 +92,8 @@ def generate_hdf5_data(hdf5_file, mode, sample_count, params):
         comm_config = conn_opt.config[comm_idcs,:]
         hdf5_grp['comm_config'][i,...] = comm_config
 
-        # configuration of entire team as binary image
-        final_img = np.zeros(params['img_size'], dtype=np.uint8)
-        subs = pos_to_subs(params['meters_per_pixel'], np.vstack((task_config, comm_config)))
-        final_img[subs[:,0], subs[:,1]] = 1
-        hdf5_grp['final_img'][i,...] = final_img
+        # configuration of comm team as image
+        hdf5_grp['comm_img'][i,...] = kernelized_config_img(comm_config, params)
 
         # connectivity
         l2 = ConnectivityOpt.connectivity(params['channel_model'], task_config, comm_config)
@@ -113,7 +118,9 @@ if __name__ == '__main__':
     # parse input
 
     parser = argparse.ArgumentParser(description='generate dataset for learning connectivity')
-    parser.add_argument('--samples', default=10, type=int, help=f'Number of samples to generate. Default is {samples}')
+    parser.add_argument('--filename', default='connectivity', type=int, help='name of database to be generated')
+    parser.add_argument('--overwrite', action='store_true', help='overwrite database if one already exists with the same name')
+    parser.add_argument('--samples', default=10, type=int, help=f'number of samples to generate, default is {samples}')
     parser.add_argument('--display', action='store_true', help='display a sample of the data after generation')
     p = parser.parse_args()
 
@@ -126,11 +133,19 @@ if __name__ == '__main__':
     params['bbx'] = np.asarray([0, space_side_length, 0, space_side_length])
     params['channel_model'] = PiecewiseChannel(print_values=False)
     params['meters_per_pixel'] = space_side_length / img_res
+    import pdb;pdb.set_trace()
+    params['ij'] = np.stack(np.meshgrid(np.arange(img_res), np.arange(img_res), indexing='ij'), axis=2)
+    params['xy'] = params['meters_per_pixel'] * (ij + 0.5)
+
     print(f"using {img_res}x{img_res} images with {params['meters_per_pixel']} meters/pixel")
 
     # generate random training data
 
-    hdf5_file = h5py.File(datadir / 'connectivity_from_imgs.hdf5', mode='w')
+    filename = datadir / 'connectivity_from_imgs.hdf5'
+    if filename.exists() and not p.overwrite:
+        print(f'no action taken: database {filename} already exists and overwriting is disabled')
+        exit(0)
+    hdf5_file = h5py.File(filename, mode='w')
 
     sample_counts = np.round(p.samples * (np.asarray([0,1]) + train_percent*np.asarray([1,-1]))).astype(int)
     for count, mode in zip(sample_counts, ('train','test')):
