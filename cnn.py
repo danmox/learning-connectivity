@@ -18,6 +18,10 @@ from datetime import datetime
 mpl.rcParams['figure.dpi'] = 200
 
 
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
 def show_imgs(in_imgs, net_imgs, out_imgs, show=True):
     assert(in_imgs.shape[0] == out_imgs.shape[0] and net_imgs.shape[0] == in_imgs.shape[0])
     num_imgs = in_imgs.shape[0]
@@ -138,6 +142,7 @@ print(device)
 
 # TODO random initilization
 net = AutoEncoderCNN()
+print(f'initialized network with {count_parameters(net)} parameters')
 # net = ImgImgCNN()
 print(net)
 net.to(device)
@@ -162,7 +167,7 @@ train_in = hdf5_file['train']['task_img']
 train_out = hdf5_file['train']['comm_img']
 img_res = train_in.shape[1]
 batch_size = 5 # NOTE use powers of 2
-epochs = 100
+epochs = 1000
 update_interval = 100  # print loss after this many training steps
 
 def scale_img(img):
