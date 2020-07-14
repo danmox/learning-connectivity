@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import scipy.misc
+from scipy.stats import norm
 from pathlib import Path
 import shutil
 import os
@@ -11,10 +12,12 @@ import inspect
 import time
 import datetime
 import h5py
+import json
 import argparse
 
 from network_planner.connectivity_optimization import ConnectivityOpt
 from socp.channel_model import PiecewiseChannel
+from view_hdf5_dataset import display_samples
 
 
 # helps the figures to be readable on hidpi screens
@@ -38,7 +41,6 @@ def human_readable_duration(dur):
 
 
 def kernelized_config_img(config, params):
-
     img = np.zeros(params['img_size'])
     for agent in config:
         dist = np.linalg.norm(params['xy'] - agent, axis=2)
@@ -113,64 +115,61 @@ if __name__ == '__main__':
     train_percent = 0.85
     space_side_length = 30  # length of a side of the image in meters
     img_res = 128           # pixels per side of a square image
+    kernel_std = 1.0        # standard deviation of gaussian kernel marking node positions
     datadir = Path(__file__).resolve().parent / 'data'
 
     # parse input
 
     parser = argparse.ArgumentParser(description='generate dataset for learning connectivity')
-    parser.add_argument('--filename', default='connectivity', type=int, help='name of database to be generated')
+    parser.add_argument('--filename', default='connectivity', type=str, help='name of database to be generated')
     parser.add_argument('--overwrite', action='store_true', help='overwrite database if one already exists with the same name')
     parser.add_argument('--samples', default=10, type=int, help=f'number of samples to generate, default is {samples}')
     parser.add_argument('--display', action='store_true', help='display a sample of the data after generation')
     p = parser.parse_args()
 
-    # init
+    # init params
 
     params = {}
     params['task_agents'] = task_agents
     params['comm_agents'] = comm_agents
     params['img_size'] = (img_res, img_res)
-    params['bbx'] = np.asarray([0, space_side_length, 0, space_side_length])
-    params['channel_model'] = PiecewiseChannel(print_values=False)
+    params['bbx'] = [0, space_side_length, 0, space_side_length]
     params['meters_per_pixel'] = space_side_length / img_res
-    import pdb;pdb.set_trace()
-    params['ij'] = np.stack(np.meshgrid(np.arange(img_res), np.arange(img_res), indexing='ij'), axis=2)
+    params['kernel_std'] = kernel_std
+
+    param_file_name = datadir / (p.filename + '.json')
+    with open(param_file_name, 'w') as f:
+        json.dump(params, f, indent=4, separators=(',', ': '))
+
+    # these params don't need to be saved but save time to precompute
+    params['bbx'] = np.asarray(params['bbx'])
+    params['channel_model'] = PiecewiseChannel(print_values=False)
+    ij = np.stack(np.meshgrid(np.arange(img_res), np.arange(img_res), indexing='ij'), axis=2)
     params['xy'] = params['meters_per_pixel'] * (ij + 0.5)
 
     print(f"using {img_res}x{img_res} images with {params['meters_per_pixel']} meters/pixel")
 
     # generate random training data
 
-    filename = datadir / 'connectivity_from_imgs.hdf5'
-    if filename.exists() and not p.overwrite:
-        print(f'no action taken: database {filename} already exists and overwriting is disabled')
+    data_file_name = datadir / (p.filename + '.hdf5')
+    if data_file_name.exists() and not p.overwrite:
+        print(f'no action taken: database {data_file_name} already exists and overwriting is disabled')
         exit(0)
-    hdf5_file = h5py.File(filename, mode='w')
+    hdf5_file = h5py.File(data_file_name, mode='w')
 
     sample_counts = np.round(p.samples * (np.asarray([0,1]) + train_percent*np.asarray([1,-1]))).astype(int)
     for count, mode in zip(sample_counts, ('train','test')):
         print(f'generating {count} samples for {mode}ing')
 
         t0 = time.time()
-        generate_hdf5_data(hdf5_file, mode, count, params)
+        generate_hdf5_image_data(hdf5_file, mode, count, params)
         duration_str = human_readable_duration(time.time()-t0)
-        print(f'generated {count} samples for {mode}ing in {duration_sr}')
-
-        if p.display:
-            plt.plot(hdf5_file[mode]['connectivity'], 'r.', ms=3)
-            plt.show()
+        print(f'generated {count} samples for {mode}ing in {duration_str}')
 
     # view a selection of the generated data
+
     if p.display:
-        num_viz_samples = 3
-        sample_idcs = [np.random.randint(0, max_idx, size=(num_viz_samples,)) for max_idx in sample_counts]
-        for idcs, mode in zip(sample_idcs, ('train','test')):
-            for i, idx in zip(range(num_viz_samples), idcs):
-                plt.subplot(num_viz_samples, 2, i*2+1)
-                plt.imshow(hdf5_file[mode]['init_img'][idx,...])
-                plt.subplot(num_viz_samples, 2, (i+1)*2)
-                plt.imshow(hdf5_file[mode]['final_img'][idx,...])
-            plt.show()
+        display_samples(hdf5_file, 3)
 
     print(f'saved data to: {hdf5_file.filename}')
     hdf5_file.close()
