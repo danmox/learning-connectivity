@@ -4,3 +4,6 @@
 results
 bags
 data
+runs
+models
+__pycache__
