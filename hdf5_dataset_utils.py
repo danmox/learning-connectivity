@@ -52,17 +52,19 @@ def kernelized_config_img(config, params):
 
 def generate_hdf5_image_data(hdf5_file, mode, sample_count, params):
 
-    # initialize hdf5 datastructure
-    #
-    # file structure is:
-    # hdf5 file
-    #  - ...
-    #  - mode
-    #    - task_config
-    #    - init_img
-    #    - comm_config
-    #    - final_img
-    #    - connectivity
+    '''
+    generate hdf5 datastructure
+
+    file structure is:
+      hdf5 file
+       - ...
+       - mode
+         - task_config
+         - task_img
+         - comm_config
+         - comm_img
+         - connectivity
+    '''
 
     hdf5_grp = hdf5_file.create_group(mode)
 
@@ -105,27 +107,14 @@ def generate_hdf5_image_data(hdf5_file, mode, sample_count, params):
         print(f'saved sample {i+1} of {sample_count}, elapsed time: {duration_str}\r', end="")
 
 
-if __name__ == '__main__':
+def generate_hdf5_dataset(task_agents, comm_agents, samples):
 
-    # params
+    # generation params
 
-    task_agents = 4
-    comm_agents = 3
-    samples = 10
     train_percent = 0.85
     space_side_length = 30  # length of a side of the image in meters
     img_res = 128           # pixels per side of a square image
     kernel_std = 1.0        # standard deviation of gaussian kernel marking node positions
-    datadir = Path(__file__).resolve().parent / 'data'
-
-    # parse input
-
-    parser = argparse.ArgumentParser(description='generate dataset for learning connectivity')
-    parser.add_argument('--filename', default='connectivity', type=str, help='name of database to be generated')
-    parser.add_argument('--overwrite', action='store_true', help='overwrite database if one already exists with the same name')
-    parser.add_argument('--samples', default=10, type=int, help=f'number of samples to generate, default is {samples}')
-    parser.add_argument('--display', action='store_true', help='display a sample of the data after generation')
-    p = parser.parse_args()
 
     # init params
 
@@ -137,7 +126,13 @@ if __name__ == '__main__':
     params['meters_per_pixel'] = space_side_length / img_res
     params['kernel_std'] = kernel_std
 
-    param_file_name = datadir / (p.filename + '.json')
+    # generate descriptive filename
+    timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M')
+    filename = Path(__file__).resolve().parent / 'data' / \
+        f'connectivity_{task_agents}t_{comm_agents}n_{samples}_{timestamp}.hdf5'
+
+    # save param file
+    param_file_name = filename.with_suffix('.json')
     with open(param_file_name, 'w') as f:
         json.dump(params, f, indent=4, separators=(',', ': '))
 
@@ -147,17 +142,15 @@ if __name__ == '__main__':
     ij = np.stack(np.meshgrid(np.arange(img_res), np.arange(img_res), indexing='ij'), axis=2)
     params['xy'] = params['meters_per_pixel'] * (ij + 0.5)
 
+    # print dataset info to console
     print(f"using {img_res}x{img_res} images with {params['meters_per_pixel']} meters/pixel")
+    print(f'with {task_agents} task agents and {comm_agents} network agents')
 
-    # generate random training data
+    # generate training data
 
-    data_file_name = datadir / (p.filename + '.hdf5')
-    if data_file_name.exists() and not p.overwrite:
-        print(f'no action taken: database {data_file_name} already exists and overwriting is disabled')
-        exit(0)
-    hdf5_file = h5py.File(data_file_name, mode='w')
+    hdf5_file = h5py.File(filename, mode='w')
+    sample_counts = np.round(samples * (np.asarray([0,1]) + train_percent*np.asarray([1,-1]))).astype(int)
 
-    sample_counts = np.round(p.samples * (np.asarray([0,1]) + train_percent*np.asarray([1,-1]))).astype(int)
     for count, mode in zip(sample_counts, ('train','test')):
         print(f'generating {count} samples for {mode}ing')
 
@@ -166,10 +159,25 @@ if __name__ == '__main__':
         duration_str = human_readable_duration(time.time()-t0)
         print(f'generated {count} samples for {mode}ing in {duration_str}')
 
-    # view a selection of the generated data
-
-    if p.display:
-        display_samples(hdf5_file, 3)
-
     print(f'saved data to: {hdf5_file.filename}')
     hdf5_file.close()
+
+
+if __name__ == '__main__':
+
+    parser = argparse.ArgumentParser(description='utilities for hdf5 datasets for learning connectivity')
+    subparsers = parser.add_subparsers(dest='command', required=True)
+
+    # generate subparser
+    gen_parser = subparsers.add_parser('generate', help='generate connectivity dataset')
+    gen_parser.add_argument('-s', '--samples', metavar='N', required=True, type=int,
+                            help='number of samples to generate or view')
+    gen_parser.add_argument('-t', '--task_count', metavar='N', required=True, type=int,
+                            help='number of task agents')
+    gen_parser.add_argument('-c', '--comm_count', metavar='N', required=True, type=int,
+                            help='number of network agents')
+
+    p = parser.parse_args()
+
+    if p.command == 'generate':
+        generate_hdf5_dataset(p.task_count, p.comm_count, p.samples)
