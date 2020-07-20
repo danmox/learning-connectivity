@@ -170,12 +170,9 @@ if __name__ == '__main__':
 
     # generate subparser
     gen_parser = subparsers.add_parser('generate', help='generate connectivity dataset')
-    gen_parser.add_argument('-s', '--samples', metavar='N', required=True, type=int,
-                            help='number of samples to generate or view')
-    gen_parser.add_argument('-t', '--task_count', metavar='N', required=True, type=int,
-                            help='number of task agents')
-    gen_parser.add_argument('-c', '--comm_count', metavar='N', required=True, type=int,
-                            help='number of network agents')
+    gen_parser.add_argument('samples', type=int, help='number of samples to generate')
+    gen_parser.add_argument('task_count', type=int, help='number of task agents')
+    gen_parser.add_argument('comm_count', type=int, help='number of network agents')
 
     p = parser.parse_args()
 
