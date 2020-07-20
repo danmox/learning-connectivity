@@ -17,7 +17,6 @@ import argparse
 
 from network_planner.connectivity_optimization import ConnectivityOpt
 from socp.channel_model import PiecewiseChannel
-from view_hdf5_dataset import display_samples
 
 
 # helps the figures to be readable on hidpi screens
@@ -163,6 +162,51 @@ def generate_hdf5_dataset(task_agents, comm_agents, samples):
     hdf5_file.close()
 
 
+def view_hdf5_dataset(dataset_file, samples):
+
+    dataset = Path(dataset_file)
+    if not dataset.exists():
+        print(f'the dataset {dataset} was not found')
+        return
+
+    params_file = dataset.with_suffix('.json')
+    if not params_file.exists():
+        print(f'the parameter file {str(params_file)} was not found')
+        return
+    with open(params_file, 'r') as f:
+        params = json.load(f)
+
+    hdf5_file = h5py.File(dataset, mode='r')
+
+    sample_counts = [hdf5_file[m]['task_img'].shape[0] for m in ('train','test')]
+    sample_idcs = [np.random.randint(0, m, size=(min(m, samples),)) for m in sample_counts]
+    for idcs, mode in zip(sample_idcs, ('train','test')):
+        idcs.sort()
+        print(f"plotting {len(idcs)} {mode}ing samples: {', '.join(map(str, idcs))}")
+        for i, idx in enumerate(idcs):
+            task_config = hdf5_file[mode]['task_config'][idx,...]
+            comm_config = hdf5_file[mode]['comm_config'][idx,...]
+            ax = plt.subplot(1,4,1)
+            ax.plot(task_config[:,1], task_config[:,0], 'g.', ms=4)
+            ax.axis('scaled')
+            ax.axis(params['bbx'])
+            ax.invert_yaxis()
+            plt.subplot(1,4,2)
+            plt.imshow(hdf5_file[mode]['task_img'][idx,...])
+            ax = plt.subplot(1,4,3)
+            ax.plot(task_config[:,1], task_config[:,0], 'g.', ms=4)
+            ax.plot(comm_config[:,1], comm_config[:,0], 'r.', ms=4)
+            ax.axis('scaled')
+            ax.axis(params['bbx'])
+            ax.invert_yaxis()
+            plt.subplot(1,4,4)
+            plt.imshow(hdf5_file[mode]['comm_img'][idx,...])
+            plt.suptitle(f'sample {i+1}/{len(idcs)} with index {idx}', fontsize=14)
+            plt.show()
+
+    hdf5_file.close()
+
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='utilities for hdf5 datasets for learning connectivity')
@@ -174,7 +218,15 @@ if __name__ == '__main__':
     gen_parser.add_argument('task_count', type=int, help='number of task agents')
     gen_parser.add_argument('comm_count', type=int, help='number of network agents')
 
+    # view subparser
+    view_parser = subparsers.add_parser('view', help='view samples from connectivity dataset')
+    view_parser.add_argument('dataset', type=str, help='dataset to view samples from')
+    view_parser.add_argument('-s', '--samples', metavar='N', type=int, default=5,
+                             help='number of samples to view')
+
     p = parser.parse_args()
 
     if p.command == 'generate':
         generate_hdf5_dataset(p.task_count, p.comm_count, p.samples)
+    elif p.command == 'view':
+        view_hdf5_dataset(p.dataset, p.samples)
