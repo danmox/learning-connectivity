@@ -14,13 +14,10 @@ import datetime
 import h5py
 import json
 import argparse
+from multiprocessing import Queue, Process, cpu_count
 
 from network_planner.connectivity_optimization import ConnectivityOpt
 from socp.channel_model import PiecewiseChannel
-
-
-# helps the figures to be readable on hidpi screens
-mpl.rcParams['figure.dpi'] = 200
 
 
 def pos_to_subs(res, pts):
@@ -49,10 +46,15 @@ def kernelized_config_img(config, params):
     return np.clip(img, 0, 255)
 
 
-def generate_hdf5_image_data(hdf5_file, mode, sample_count, params):
-
+def write_hdf5_image_data(params, filename, queue):
     '''
-    generate hdf5 datastructure
+    helper function for writing hdf5 image data in a multiprocessing scenario
+
+    inputs:
+      params   - dict of parameters used to generate training data
+      filename - name of the hdf5 database in which to store training samples
+      queue    - multiprocessing queue in which samples to be written to the
+                 database are placed by generating processes
 
     file structure is:
       hdf5 file
@@ -65,58 +67,81 @@ def generate_hdf5_image_data(hdf5_file, mode, sample_count, params):
          - connectivity
     '''
 
-    hdf5_grp = hdf5_file.create_group(mode)
+    # initialize hdf5 database structure
 
-    hdf5_grp.create_dataset('task_config', (sample_count, params['task_agents'], 2), np.float64)
-    hdf5_grp.create_dataset('task_img', (sample_count,) + params['img_size'], np.uint8)
-    hdf5_grp.create_dataset('comm_config', (sample_count, params['comm_agents'], 2), np.float64)
-    hdf5_grp.create_dataset('comm_img', (sample_count,) + params['img_size'], np.uint8)
-    hdf5_grp.create_dataset('connectivity', (sample_count,), np.float64)
+    hdf5_file = h5py.File(filename, mode='w')
+    for mode in ('train', 'test'):
+        grp = hdf5_file.create_group(mode)
 
-    # image generation loop
+        sample_count = params['sample_count'][mode]
+        grp.create_dataset('task_config', (sample_count, params['task_agents'], 2), np.float64)
+        grp.create_dataset('task_img', (sample_count,) + params['img_size'], np.uint8)
+        grp.create_dataset('comm_config', (sample_count, params['comm_agents'], 2), np.float64)
+        grp.create_dataset('comm_img', (sample_count,) + params['img_size'], np.uint8)
+        grp.create_dataset('connectivity', (sample_count,), np.float64)
 
-    bbx = params['bbx']
+    # monitor queue for incoming samples
+
     t0 = time.time()
-    comm_idcs = np.arange(params['comm_agents']) + params['task_agents']
+    it_dict = {'test': 0, 'train': 0}
+    total_samples = sum([params['sample_count'][mode] for mode in ('train', 'test')])
+    total_saved = 0
+    for data in iter(queue.get, None):
+        mode = data['mode']
+        it = it_dict[mode]
 
-    for i in range(sample_count):
+        for f in ('task_config', 'task_img', 'comm_config', 'comm_img'):
+            hdf5_file[mode][f][it,...] = data[f]
+        hdf5_file[mode]['connectivity'][it] = data['connectivity']
 
-        # initial configuration of task agents as numpy array
-        task_config = np.random.random((params['task_agents'],2)) * (bbx[1::2] - bbx[0::2]) + bbx[0::2]
-        hdf5_grp['task_config'][i,...] = task_config
-
-        # configuration of task agents as image
-        hdf5_grp['task_img'][i,...] = kernelized_config_img(task_config, params)
-
-        # configuration of network agents as numpy array
-        comm_config = np.random.random((params['comm_agents'],2)) * (bbx[1::2] - bbx[0::2]) + bbx[0::2]
-        conn_opt = ConnectivityOpt(params['channel_model'], task_config, comm_config)
-        conn_opt.maximize_connectivity()
-        comm_config = conn_opt.config[comm_idcs,:]
-        hdf5_grp['comm_config'][i,...] = comm_config
-
-        # configuration of comm team as image
-        hdf5_grp['comm_img'][i,...] = kernelized_config_img(comm_config, params)
-
-        # connectivity
-        l2 = ConnectivityOpt.connectivity(params['channel_model'], task_config, comm_config)
-        hdf5_grp['connectivity'][i] = l2
-
+        it_dict[mode] += 1
+        total_saved += 1
         duration_str = human_readable_duration(time.time()-t0)
-        print(f'saved sample {i+1} of {sample_count}, elapsed time: {duration_str}\r', end="")
+        print(f'saved sample {total_saved} of {total_samples}, elapsed time: {duration_str}    \r', end="")
+
+    print(f'generated {total_samples} samples in {duration_str}                    ')
+    print(f'saved data to: {hdf5_file.filename}')
+    hdf5_file.close()
 
 
-def generate_hdf5_dataset(task_agents, comm_agents, samples):
+def generate_hdf5_image_data(params, sample_queue, writer_queue):
+    '''
+    helper function for generating hdf5 training samples in a multiprocessing
+    scenario
+
+    inputs:
+      params       - dict of parameters used to generate training data
+      sample_queue - the queue of seed data to generate samples from
+      writer_queue - the queue of data to be written to the hdf5 database
+    '''
+
+    for d in iter(sample_queue.get, None):
+        out_dict = {}
+        out_dict['task_config'] = d['task_config']
+        out_dict['mode'] = d['mode']
+
+        out_dict['task_img'] = kernelized_config_img(d['task_config'], params)
+
+        conn_opt = ConnectivityOpt(params['channel_model'], d['task_config'], d['comm_config'])
+        out_dict['connectivity'] = conn_opt.maximize_connectivity()
+        out_dict['comm_config'] = conn_opt.get_comm_config()
+
+        out_dict['comm_img'] = kernelized_config_img(out_dict['comm_config'], params)
+
+        # put sample dict in writer queue to be written to the hdf5 database
+        writer_queue.put(out_dict)
+
+
+def generate_hdf5_dataset(task_agents, comm_agents, samples, jobs):
 
     # generation params
-
-    train_percent = 0.85
     space_side_length = 30  # length of a side of the image in meters
     img_res = 128           # pixels per side of a square image
     kernel_std = 1.0        # standard deviation of gaussian kernel marking node positions
+    train_percent = 0.85    # samples total samples will be divided into training and testing sets
+    sample_counts = np.round(samples * (np.asarray([0,1]) + train_percent*np.asarray([1,-1]))).astype(int)
 
     # init params
-
     params = {}
     params['task_agents'] = task_agents
     params['comm_agents'] = comm_agents
@@ -124,9 +149,12 @@ def generate_hdf5_dataset(task_agents, comm_agents, samples):
     params['bbx'] = [0, space_side_length, 0, space_side_length]
     params['meters_per_pixel'] = space_side_length / img_res
     params['kernel_std'] = kernel_std
+    params['sample_count'] = {mode: int(count) for count, mode in zip(sample_counts, ('train', 'test'))}
 
     # generate descriptive filename
-    timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M')
+    # NOTE there is a risk of overwriting a database if this script is run more
+    # than once in a second
+    timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
     filename = Path(__file__).resolve().parent / 'data' / \
         f'connectivity_{task_agents}t_{comm_agents}n_{samples}_{timestamp}.hdf5'
 
@@ -136,7 +164,6 @@ def generate_hdf5_dataset(task_agents, comm_agents, samples):
         json.dump(params, f, indent=4, separators=(',', ': '))
 
     # these params don't need to be saved but save time to precompute
-    params['bbx'] = np.asarray(params['bbx'])
     params['channel_model'] = PiecewiseChannel(print_values=False)
     ij = np.stack(np.meshgrid(np.arange(img_res), np.arange(img_res), indexing='ij'), axis=2)
     params['xy'] = params['meters_per_pixel'] * (ij + 0.5)
@@ -145,21 +172,52 @@ def generate_hdf5_dataset(task_agents, comm_agents, samples):
     print(f"using {img_res}x{img_res} images with {params['meters_per_pixel']} meters/pixel")
     print(f'with {task_agents} task agents and {comm_agents} network agents')
 
-    # generate training data
+    # configure multiprocessing and generate training data
+    #
+    # NOTE samples are generated by a pool of worker processes feeding off the
+    # sample_queue; these worker processes in turn push generated samples onto
+    # the write_queue which is served by a single processes that handles all
+    # hdf5 database operations
 
-    hdf5_file = h5py.File(filename, mode='w')
-    sample_counts = np.round(samples * (np.asarray([0,1]) + train_percent*np.asarray([1,-1]))).astype(int)
+    num_processes = cpu_count() if jobs is None else jobs
+    sample_queue = Queue(maxsize=num_processes*2) # see NOTE below on queue size
+    write_queue = Queue()
 
+    # initialize writer process
+    hdf5_proc = Process(target=write_hdf5_image_data, args=(params, filename, write_queue))
+    hdf5_proc.start()
+
+    # initialize data generation processes
+    worker_processes = []
+    for i in range(num_processes):
+        p = Process(target=generate_hdf5_image_data, args=(params, sample_queue, write_queue))
+        worker_processes.append(p)
+        p.start()
+
+    # load sample_queue with seed data used to generate the training samples
+    #
+    # NOTE calls to sample_queue.put block when sample_queue is full; this is
+    # the desired behavior since we may be generating tens of thousands of
+    # samples and might not want to load them into memory all at the same time
+    print(f'generating {samples} samples using {num_processes} processes')
+    bbx = np.asarray(params['bbx'])
     for count, mode in zip(sample_counts, ('train','test')):
-        print(f'generating {count} samples for {mode}ing')
+        for i in range(count):
+            sd = {}
+            sd['mode'] = mode
+            sd['task_config'] = np.random.random((task_agents,2)) * (bbx[1::2] - bbx[0::2]) + bbx[0::2]
+            sd['comm_config'] = np.random.random((comm_agents,2)) * (bbx[1::2] - bbx[0::2]) + bbx[0::2]
+            sample_queue.put(sd)
 
-        t0 = time.time()
-        generate_hdf5_image_data(hdf5_file, mode, count, params)
-        duration_str = human_readable_duration(time.time()-t0)
-        print(f'generated {count} samples for {mode}ing in {duration_str}')
+    # each worker process exits once it receives a None
+    for i in range(num_processes):
+        sample_queue.put(None)
+    for proc in worker_processes:
+        proc.join()
 
-    print(f'saved data to: {hdf5_file.filename}')
-    hdf5_file.close()
+    # finally, the writer process also exits once it receives a None
+    write_queue.put(None)
+    hdf5_proc.join()
 
 
 def view_hdf5_dataset(dataset_file, samples):
@@ -217,6 +275,8 @@ if __name__ == '__main__':
     gen_parser.add_argument('samples', type=int, help='number of samples to generate')
     gen_parser.add_argument('task_count', type=int, help='number of task agents')
     gen_parser.add_argument('comm_count', type=int, help='number of network agents')
+    gen_parser.add_argument('--jobs', '-j', type=int, metavar='N',
+                            help='number of worker processes to use for generating training data')
 
     # view subparser
     view_parser = subparsers.add_parser('view', help='view samples from connectivity dataset')
@@ -227,6 +287,8 @@ if __name__ == '__main__':
     p = parser.parse_args()
 
     if p.command == 'generate':
-        generate_hdf5_dataset(p.task_count, p.comm_count, p.samples)
+        generate_hdf5_dataset(p.task_count, p.comm_count, p.samples, p.jobs)
     elif p.command == 'view':
+        # helps the figures to be readable on hidpi screens
+        mpl.rcParams['figure.dpi'] = 200
         view_hdf5_dataset(p.dataset, p.samples)
