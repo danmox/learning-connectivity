@@ -248,7 +248,7 @@ def view_hdf5_dataset(dataset_file, samples):
         for i, idx in enumerate(idcs):
             task_config = hdf5_file[mode]['task_config'][idx,...]
             comm_configs = hdf5_file[mode]['comm_config'][idx,...]
-            cols = comm_configs.shape[0] + 1
+            cols = len(params['comm_agents']) + 1
 
             # task agent configuration
             ax = plt.subplot(2,cols,1)
@@ -302,5 +302,5 @@ if __name__ == '__main__':
         generate_hdf5_dataset(p.task_count, p.comm_count, p.samples, p.jobs)
     elif p.command == 'view':
         # helps the figures to be readable on hidpi screens
-        mpl.rcParams['figure.dpi'] = 100
+        mpl.rcParams['figure.dpi'] = 200
         view_hdf5_dataset(p.dataset, p.samples)
