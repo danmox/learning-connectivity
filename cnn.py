@@ -123,6 +123,8 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train for')
     parser.add_argument('--model', type=str, help='model to continue training')
     parser.add_argument('--nolog', action='store_true', help='disable logging')
+    parser.add_argument('--noask', action='store_true',
+                        help='skip asking user to continue training beyond given number of epochs')
     p = parser.parse_args()
 
     # load dataset
@@ -175,56 +177,87 @@ if __name__ == '__main__':
     if not p.nolog:
         writer = SummaryWriter()
     loss_it = 0
-    for epoch in range(epochs):  # loop over the dataset multiple times
+    total_epochs = 0
+    train = True
 
-        running_loss = 0.0
-        batch = np.arange(train_in.shape[0])
-        np.random.shuffle(batch)
-        batch = batch.reshape((-1, batch_size))
-        batch.sort()
-        for i in range(batch.shape[0]):
+    while train:
 
-            in_ten = np_to_tensor(train_in[batch[i],...], in_shape, device)
-            out_ten = np_to_tensor(train_out[batch[i],...], out_shape, device)
+        # loop over the dataset multiple times
 
-            # zero the parameter gradients
-            optimizer.zero_grad()
+        for epoch in range(epochs):
 
-            # predict
-            net_ten = net(in_ten)
+            running_loss = 0.0
+            batch = np.arange(train_in.shape[0])
+            np.random.shuffle(batch)
+            batch = batch.reshape((-1, batch_size))
+            batch.sort()
+            for i in range(batch.shape[0]):
 
-            # backprop + optimize
-            loss = criterion(net_ten, out_ten)
-            loss.backward()
-            optimizer.step()
+                in_ten = np_to_tensor(train_in[batch[i],...], in_shape, device)
+                out_ten = np_to_tensor(train_out[batch[i],...], out_shape, device)
 
-            # print statistics
-            running_loss += loss.item()
-            if i % update_interval == (update_interval-1):
-                if not p.nolog:
-                    writer.add_scalar('loss', running_loss / update_interval, loss_it)
-                loss_it += 1
-                print(f'[{epoch+1:3d}, {i+1:4d}] loss: {running_loss/update_interval:.5f}')
-                running_loss = 0.0
+                # zero the parameter gradients
+                optimizer.zero_grad()
 
-        if p.nolog:
-            continue
+                # predict
+                net_ten = net(in_ten)
 
-        # show learning progress in tensorboard
-        with torch.no_grad():
-            in_ten = np_to_tensor(train_in[0:batch_size,...], in_shape, device)
-            net_ten = net(in_ten)
+                # backprop + optimize
+                loss = criterion(net_ten, out_ten)
+                loss.backward()
+                optimizer.step()
 
-            ten_list = []
-            out_ten = np_to_tensor(train_out[0:batch_size,...], out_shape)
-            img_shape = (1, img_res, img_res)
-            for i in range(batch_size):
-                ten_list.append(in_ten[i].cpu().detach())
-                ten_list += [net_ten[i,j].cpu().detach().reshape(img_shape) for j in range(out_layers)]
-                ten_list += [out_ten[i,j].reshape(img_shape) for j in range(out_layers)]
+                # print statistics
+                running_loss += loss.item()
+                if i % update_interval == (update_interval-1):
+                    if not p.nolog:
+                        writer.add_scalar('loss', running_loss / update_interval, loss_it)
+                    loss_it += 1
+                    print(f'[{total_epochs+epoch+1:3d}, {i+1:4d}] loss: {running_loss/update_interval:.5f}')
+                    running_loss = 0.0
 
-            grid = make_grid(ten_list, nrow=2*out_layers+1, padding=20, pad_value=1)
-            writer.add_image('results', grid, global_step=epoch+1)
+            if p.nolog:
+                continue
+
+            # show learning progress in tensorboard
+
+            with torch.no_grad():
+                in_ten = np_to_tensor(train_in[0:batch_size,...], in_shape, device)
+                net_ten = net(in_ten)
+
+                ten_list = []
+                out_ten = np_to_tensor(train_out[0:batch_size,...], out_shape)
+                img_shape = (1, img_res, img_res)
+                for i in range(batch_size):
+                    ten_list.append(in_ten[i].cpu().detach())
+                    ten_list += [net_ten[i,j].cpu().detach().reshape(img_shape) for j in range(out_layers)]
+                    ten_list += [out_ten[i,j].reshape(img_shape) for j in range(out_layers)]
+
+                grid = make_grid(ten_list, nrow=2*out_layers+1, padding=20, pad_value=1)
+                writer.add_image('results', grid, global_step=epoch+1)
+
+        total_epochs += epochs
+        print(f'completed {total_epochs} epochs of training')
+
+        # ask user if they want to extend training
+
+        if p.noask:
+            break
+        else:
+            user_input = '-'
+            while user_input not in ['y','N','n','']:
+                user_input = input('continue training (y/N)?: ')
+            if user_input in ['','N','n']:
+                break
+            else:
+                while True:
+                    try:
+                        user_input = input('enter number of additional epochs to train: ')
+                        epochs = int(user_input)
+                        break
+                    except:
+                        print('enter a valid integer')
+                        pass
 
     if not p.nolog:
         writer.close()
