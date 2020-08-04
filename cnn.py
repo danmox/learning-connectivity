@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 
 import torch
-import torchvision
-import torchvision.transforms as transforms
+from torchvision.utils import make_grid
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -13,6 +12,7 @@ import numpy as np
 from pathlib import Path
 import h5py
 from datetime import datetime
+import argparse
 
 # helps the figures to be readable on hidpi screens
 mpl.rcParams['figure.dpi'] = 200
@@ -23,53 +23,28 @@ def count_parameters(model):
 
 
 def show_imgs(in_imgs, net_imgs, out_imgs, show=True):
-    assert(in_imgs.shape[0] == out_imgs.shape[0] and net_imgs.shape[0] == in_imgs.shape[0])
-    num_imgs = in_imgs.shape[0]
-    for i in range(num_imgs):
+    assert(in_imgs.shape[0] == net_imgs.shape[0] == out_imgs.shape[0] and net_imgs.shape == out_imgs.shape)
+    num_layers = net_imgs.shape[1]
+    num_rows = in_imgs.shape[0]
+    num_cols = 2*num_layers+1
+    for i in range(num_rows):
         in_tmp = torch.clamp(in_imgs[i] * 255.0, 0, 255).cpu().detach().numpy().astype(np.uint8).squeeze()
         net_tmp = torch.clamp(net_imgs[i] * 255.0, 0, 255).cpu().detach().numpy().astype(np.uint8).squeeze()
         out_tmp = torch.clamp(out_imgs[i] * 255.0, 0, 255).cpu().detach().numpy().astype(np.uint8).squeeze()
-        plt.subplot(3, num_imgs, i+1)
+        plt.subplot(num_rows, num_cols, i*num_cols+1)
         plt.imshow(in_tmp)
-        plt.subplot(3, num_imgs, i+1+num_imgs)
-        plt.imshow(net_tmp)
-        plt.subplot(3, num_imgs, i+1+num_imgs*2)
-        plt.imshow(out_tmp)
+        for j in range(num_layers):
+            plt.subplot(num_rows, num_cols, i*num_cols+2+j)
+            plt.imshow(net_tmp[j,...])
+            plt.subplot(num_rows, num_cols, i*num_cols+2+num_layers+j)
+            plt.imshow(out_tmp[j,...])
     if show:
         plt.show()
-
-
-# load data
-
-
-dataset = Path(__file__).resolve().parent / 'data' / 'connectivity_from_imgs_10000_kernel_io.hdf5'
-hdf5_file = h5py.File(dataset, mode='r')
-
-
-# define networks
 
 
 class AutoEncoderCNN(nn.Module):
     def __init__(self):
         super(AutoEncoderCNN, self).__init__()
-
-        # self.encoder = nn.Sequential(
-        #     nn.Conv2d(1, 4, 5, padding=2),
-        #     nn.ReLU(True),
-        #     nn.MaxPool2d(2, stride=2),
-        #     nn.Conv2d(4, 8, 5, padding=2),
-        #     nn.ReLU(True),
-        #     nn.MaxPool2d(2, stride=2),
-        #     nn.Conv2d(8, 12, 5, padding=2),
-        #     nn.ReLU(True),
-        #     nn.MaxPool2d(2, stride=2)
-        # )
-
-        # self.decoder = nn.Sequential(
-        #     nn.Conv2d(12, 8, 5, padding=2)
-        #     nn.Conv2d(8, 4, 5, padding=2)
-        #     nn.Conv2d(4, 1, 5, padding=2)
-        # )
 
         # encoder
         self.econv1 = nn.Conv2d(1, 4, 5, padding=2)
@@ -87,7 +62,7 @@ class AutoEncoderCNN(nn.Module):
         self.dconv2 = nn.Conv2d(16, 12, 5, padding=2)
         self.dconv3 = nn.Conv2d(12, 8, 5, padding=2)
         self.dconv4 = nn.Conv2d(8, 4, 5, padding=2)
-        self.dconv5 = nn.Conv2d(4, 1, 5, padding=2)
+        self.dconv5 = nn.Conv2d(4, 3, 5, padding=2)
 
     def forward(self, x):
 
@@ -106,10 +81,6 @@ class AutoEncoderCNN(nn.Module):
         x = F.relu(self.dconv5(F.interpolate(x, scale_factor=2, mode='nearest')))
 
         return x
-
-
-    # TODO standard NN on vectors of node positions
-    # TODO simpler images: 2 task 1 comm
 
 
 class ImgImgCNN(nn.Module):
@@ -132,132 +103,166 @@ class ImgImgCNN(nn.Module):
         return x
 
 
-# TODO try alex net
-
-# use GPU
-
-
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-print(device)
-
-# TODO random initilization
-net = AutoEncoderCNN()
-print(f'initialized network with {count_parameters(net)} parameters')
-# net = ImgImgCNN()
-print(net)
-net.to(device)
+def np_to_tensor(data, shape, device=None):
+    '''
+    normalize [0, 255] image data to [0,1], convert it to a pytorch tensor and
+    load it on to the device, if provided
+    '''
+    if device is None:
+        return torch.from_numpy((data / 255.0).reshape(shape)).float()
+    else:
+        return torch.from_numpy((data / 255.0).reshape(shape)).float().to(device)
 
 
-# define loss and optimizer
+if __name__ == '__main__':
 
+    # argparsing
 
-# criterion = nn.CrossEntropyLoss()
-criterion = nn.MSELoss()
-optimizer = optim.Adam(net.parameters(), lr=0.00001)
-# NOTE start low and increase
-# optimizer = optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
-# optimizer = optim.SGD(net.parameters(), lr=0.0001, momentum=0.09)
-# optimizer = optim.SGD(net.parameters(), lr=0.00001, momentum=0.009)
+    parser = argparse.ArgumentParser(description='train connectivity CNN')
+    parser.add_argument('dataset', type=str, help='dataset for training / testing')
+    parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train for')
+    parser.add_argument('--model', type=str, help='model to continue training')
+    parser.add_argument('--nolog', action='store_true', help='disable logging')
+    p = parser.parse_args()
 
+    # load dataset
 
-# train network
+    dataset = Path(p.dataset)
+    if not dataset.exists():
+        print(f'provided dataset {dataset} not found')
+        exit(1)
+    hdf5_file = h5py.File(dataset, mode='r')
 
+    # initialize training device, using GPU if available
 
-train_in = hdf5_file['train']['task_img']
-train_out = hdf5_file['train']['comm_img']
-img_res = train_in.shape[1]
-batch_size = 5 # NOTE use powers of 2
-epochs = 1000
-update_interval = 100  # print loss after this many training steps
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print(f'training with device: {device}')
 
-def scale_img(img):
-    return img / 255.0
+    # initialize model or load an existing one
 
-loss_vec = []
-writer = SummaryWriter()
-loss_it = 0
-for epoch in range(epochs):  # loop over the dataset multiple times
+    if p.model is None:
+        net = AutoEncoderCNN() # TODO randomize initialization
+        print(f'initialized new network with {count_parameters(net)} parameters')
+    else:
+        model_file = Path(p.model)
+        if not model_file.exists():
+            print(f'provided model {model_file} not found')
+            exit(1)
+        net = AutoEncoderCNN()
+        net.load_state_dict(torch.load(model_file))
+        print(f'loaded model from {model_file} with {count_parameters(net)} parameters')
+    net.to(device)
 
-    running_loss = 0.0
-    batch = np.arange(train_in.shape[0])
-    np.random.shuffle(batch)
-    batch = batch.reshape((-1, batch_size))
-    batch.sort()
-    for i in range(batch.shape[0]):
+    # define loss and optimizer
 
-        # normalize data from [0,1] to [-1,1] and reshape to (batch_size, channels, res_x, rez_y)
-        in_tmp = scale_img(train_in[batch[i],...]).reshape((batch_size, 1, img_res, img_res))
-        out_tmp = scale_img(train_out[batch[i],...]).reshape((batch_size, 1, img_res, img_res))
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(net.parameters(), lr=1e-6) # NOTE start low and increase
 
-        # convert the batch to a tensor and load it onto the GPU
-        in_imgs = torch.from_numpy(in_tmp).float().to(device)
-        ref_imgs = torch.from_numpy(out_tmp).float().to(device)
+    # initialize training parameters
 
-        # zero the parameter gradients
-        optimizer.zero_grad()
+    train_in = hdf5_file['train']['task_img']
+    train_out = hdf5_file['train']['comm_img']
+    out_layers = train_out.shape[1]
+    img_res = train_in.shape[1]
+    batch_size = 5 # NOTE use powers of 2?
+    epochs = p.epochs
+    update_interval = 100  # print loss after this many training steps
+    in_shape = (batch_size, 1, img_res, img_res)
+    out_shape = (batch_size, out_layers, img_res, img_res)
 
-        # predict
-        net_imgs = net(in_imgs)
-        # if i == batch.shape[0]-1 and epoch % 2 == 0:
-        #     show_imgs(in_imgs, net_imgs, ref_imgs)
+    # train network
 
-        # backprop + optimize
-        loss = criterion(net_imgs, ref_imgs)
-        loss.backward()
-        optimizer.step()
+    if not p.nolog:
+        writer = SummaryWriter()
+    loss_it = 0
+    for epoch in range(epochs):  # loop over the dataset multiple times
 
-        # print statistics
-        running_loss += loss.item()
-        if i % update_interval == (update_interval-1):
-            writer.add_scalar('loss', running_loss / update_interval, loss_it)
-            loss_it += 1
-            loss_vec.append(running_loss/update_interval)
-            print(f'[{epoch+1:3d}, {i+1:4d}] loss: {running_loss/update_interval:.5f}')
-            running_loss = 0.0
+        running_loss = 0.0
+        batch = np.arange(train_in.shape[0])
+        np.random.shuffle(batch)
+        batch = batch.reshape((-1, batch_size))
+        batch.sort()
+        for i in range(batch.shape[0]):
 
-    # print(f'done: epoch {epoch+1:2d} of {epochs}')
+            in_ten = np_to_tensor(train_in[batch[i],...], in_shape, device)
+            out_ten = np_to_tensor(train_out[batch[i],...], out_shape, device)
 
-writer.close()
+            # zero the parameter gradients
+            optimizer.zero_grad()
 
-print('Finished Training')
+            # predict
+            net_ten = net(in_ten)
 
+            # backprop + optimize
+            loss = criterion(net_ten, out_ten)
+            loss.backward()
+            optimizer.step()
 
-# save model
+            # print statistics
+            running_loss += loss.item()
+            if i % update_interval == (update_interval-1):
+                if not p.nolog:
+                    writer.add_scalar('loss', running_loss / update_interval, loss_it)
+                loss_it += 1
+                print(f'[{epoch+1:3d}, {i+1:4d}] loss: {running_loss/update_interval:.5f}')
+                running_loss = 0.0
 
-timestamp = datetime.now().strftime('%Y%m%d-%H%M')
-model_file = Path(__file__).resolve().parent / 'models' / ('connectivity_' + timestamp + '.pth')
-torch.save(net.state_dict(), model_file)
-print(f'saved model to {model_file}')
+        if p.nolog:
+            continue
 
+        # show learning progress in tensorboard
+        with torch.no_grad():
+            in_ten = np_to_tensor(train_in[0:batch_size,...], in_shape, device)
+            net_ten = net(in_ten)
 
-# test network on one test instance
+            ten_list = []
+            out_ten = np_to_tensor(train_out[0:batch_size,...], out_shape)
+            img_shape = (1, img_res, img_res)
+            for i in range(batch_size):
+                ten_list.append(in_ten[i].cpu().detach())
+                ten_list += [net_ten[i,j].cpu().detach().reshape(img_shape) for j in range(out_layers)]
+                ten_list += [out_ten[i,j].reshape(img_shape) for j in range(out_layers)]
 
+            grid = make_grid(ten_list, nrow=2*out_layers+1, padding=20, pad_value=1)
+            writer.add_image('results', grid, global_step=epoch+1)
 
-net = AutoEncoderCNN()
-net.load_state_dict(torch.load(model_file))
-net.to(device)
+    if not p.nolog:
+        writer.close()
+    print('Finished Training')
 
-test_in = hdf5_file['test']['task_img']
-test_out = hdf5_file['test']['comm_img']
-idx = np.random.randint(test_in.shape[0])
+    # # test network on one test instance
 
-batch = np.arange(test_in.shape[0])
-np.random.shuffle(batch)
-batch = batch.reshape((-1, batch_size))
-batch.sort()
+    # test_in = hdf5_file['test']['task_img']
+    # test_out = hdf5_file['test']['comm_img']
+    # idx = np.random.randint(test_in.shape[0])
 
-# normalize data from [0,1] to [-1,1] and reshape to (batch_size, channels, res_x, rez_y)
-in_tmp = scale_img(test_in[batch[0],...]).reshape((batch_size, 1, img_res, img_res))
-out_tmp = scale_img(test_out[batch[0],...]).reshape((batch_size, 1, img_res, img_res))
+    # batch = np.arange(test_in.shape[0])
+    # np.random.shuffle(batch)
+    # batch = batch.reshape((-1, batch_size))
+    # batch.sort()
 
-with torch.no_grad():
+    # with torch.no_grad():
 
-    # convert the batch to a tensor and load it onto the GPU
-    in_imgs = torch.from_numpy(in_tmp).float().to(device)
-    ref_imgs = torch.from_numpy(out_tmp).float().to(device)
+    #     # convert the batch to a tensor and load it onto the GPU
+    #     in_ten = np_to_tensor(test_in[batch[0],...], in_shape, device)
+    #     out_ten = np_to_tensor(test_out[batch[0],...], out_shape, device)
 
-    # predict
-    net_imgs = net(in_imgs)
+    #     # predict
+    #     net_ten = net(in_ten)
 
-    # show
-    show_imgs(in_imgs, net_imgs, ref_imgs)
+    #     # show
+    #     show_imgs(in_ten, net_ten, out_ten)
+
+    # save model
+
+    user_input = '-'
+    while user_input not in ['y','Y','n','']:
+        user_input = input('save model (Y/n)?: ')
+    if user_input in ['y','Y','']:
+        timestamp = datetime.now().strftime('%Y%m%d-%H%M')
+        model_file = Path(__file__).resolve().parent / 'models' / ('connectivity_' + timestamp + '.pth')
+        torch.save(net.state_dict(), model_file)
+        print(f'saved model to {model_file}')
+    else:
+        print('model not saved to file')
+
