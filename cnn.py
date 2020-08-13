@@ -234,7 +234,7 @@ if __name__ == '__main__':
                     ten_list += [out_ten[i,j].reshape(img_shape) for j in range(out_layers)]
 
                 grid = make_grid(ten_list, nrow=2*out_layers+1, padding=20, pad_value=1)
-                writer.add_image('results', grid, global_step=epoch+1)
+                writer.add_image('results', grid, global_step=total_epochs+epoch+1)
 
         total_epochs += epochs
         print(f'completed {total_epochs} epochs of training')
@@ -298,4 +298,3 @@ if __name__ == '__main__':
         print(f'saved model to {model_file}')
     else:
         print('model not saved to file')
-
