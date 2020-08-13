@@ -288,13 +288,14 @@ if __name__ == '__main__':
     gen_parser.add_argument('task_count', type=int, help='number of task agents')
     gen_parser.add_argument('comm_count', type=int, help='number of network agents', nargs=3)
     gen_parser.add_argument('--jobs', '-j', type=int, metavar='N',
-                            help='number of worker processes to use for generating training data')
+                            help='number of worker processes to use; default is # of CPU cores')
 
     # view subparser
     view_parser = subparsers.add_parser('view', help='view samples from connectivity dataset')
     view_parser.add_argument('dataset', type=str, help='dataset to view samples from')
     view_parser.add_argument('-s', '--samples', metavar='N', type=int, default=5,
                              help='number of samples to view')
+    view_parser.add_argument('--dpi', type=int, default=200, help='dpi to use for figure')
 
     p = parser.parse_args()
 
@@ -302,5 +303,5 @@ if __name__ == '__main__':
         generate_hdf5_dataset(p.task_count, p.comm_count, p.samples, p.jobs)
     elif p.command == 'view':
         # helps the figures to be readable on hidpi screens
-        mpl.rcParams['figure.dpi'] = 200
+        mpl.rcParams['figure.dpi'] = p.dpi
         view_hdf5_dataset(p.dataset, p.samples)
