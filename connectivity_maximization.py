@@ -37,7 +37,7 @@ def connectivity_distance_test():
     plt.show()
 
 
-def acsdp_circle_test():
+def conn_max_test():
 
     # NOTE requires 1e-9 to separate
     # x_task = np.asarray([[0.0, 0.0], [10.0, 20.0], [20.0, 0.0]])
@@ -147,10 +147,10 @@ def scale_test():
 
 def run_all_tests():
     connectivity_distance_test()
-    acsdp_circle_test()
+    conn_max_test()
     scale_test()
 
 
 if __name__ == '__main__':
     #connectivity_distance_test()
-    acsdp_circle_test()
+    conn_max_test()
