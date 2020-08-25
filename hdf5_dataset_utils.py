@@ -46,6 +46,16 @@ def kernelized_config_img(config, params):
     return np.clip(img, 0, 255)
 
 
+def adaptive_bbx(agent_count, comm_range=30.0, scale_factor=0.5):
+    '''
+    scale the bounding box within which agent configurations are randomly
+    sampled so that the maximum area covered by the agents is a fixed multiple
+    of the area of the bounding box
+    '''
+    side_length = np.sqrt(np.pi * agent_count * scale_factor) * comm_range
+    return side_length * np.asarray([-1, 1, -1, 1]) / 2.0
+
+
 def write_hdf5_image_data(params, filename, queue):
     '''
     helper function for writing hdf5 image data in a multiprocessing scenario
@@ -210,7 +220,7 @@ def generate_hdf5_dataset(task_agents, comm_agents, samples, jobs):
             sd = {}
             sd['mode'] = mode
             sd['task_config'] = np.random.random((task_agents,2)) * (bbx[1::2] - bbx[0::2]) + bbx[0::2]
-            sd['comm_config'] = np.random.random((max(comm_agents),2)) * (bbx[1::2] - bbx[0::2]) + bbx[0::2]
+            sd['comm_config'] = np.random.random((comm_agents,2)) * (bbx[1::2] - bbx[0::2]) + bbx[0::2]
             sample_queue.put(sd)
 
     # each worker process exits once it receives a None

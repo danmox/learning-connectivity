@@ -3,6 +3,7 @@ import numpy as np
 from socp.channel_model import PiecewiseChannel, ChannelModel
 from socp.rr_socp_tests import plot_config, numpy_to_ros
 from network_planner.connectivity_optimization import ConnectivityOpt
+from hdf5_dataset_utils import adaptive_bbx
 from math import pi
 import cvxpy as cp
 from scipy.linalg import null_space
@@ -62,21 +63,17 @@ def acsdp_circle_test():
     # x_task = circle_points(20, team_size)
     # x_comm = circle_points(18, team_size)
 
-    # NOTE
-    team_size = 5
-    x_task = circle_points(40.0, team_size)
-    x_comm = circle_points(0.2, team_size)
+    task_agents = 8
+    comm_agents = 5
+    comm_range = 30  # meters
+    bbx = adaptive_bbx(task_agents + comm_agents, comm_range, 0.7)
+    x_task = np.random.random((task_agents,2)) * (bbx[1::2] - bbx[0::2]) + bbx[0::2]
+    x_comm = np.random.random((comm_agents,2)) * (bbx[1::2] - bbx[0::2]) + bbx[0::2]
 
-    step_size = 0.2
-    tol = 1e-10
-
-    cm = PiecewiseChannel(print_values=False)
+    # cm = PiecewiseChannel(print_values=False)
+    cm = ChannelModel(print_values=False)
     co = ConnectivityOpt(cm, x_task, x_comm)
-
-    # plot initial config
-    plot_config(co.config, title="initial config")
-
-    co.maximize_connectivity(viz=True)
+    co.maximize_connectivity(step_size=5.0, tol=1e-6, viz=True)
 
 
 def scale_test():
@@ -155,5 +152,5 @@ def run_all_tests():
 
 
 if __name__ == '__main__':
-    connectivity_distance_test()
+    #connectivity_distance_test()
     acsdp_circle_test()
