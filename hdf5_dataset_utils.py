@@ -17,7 +17,7 @@ import argparse
 from multiprocessing import Queue, Process, cpu_count
 
 from network_planner.connectivity_optimization import ConnectivityOpt as ConnOpt
-from socp.channel_model import PiecewiseChannel
+from socp.channel_model import PiecewiseChannel, ChannelModel
 
 
 def pos_to_subs(res, pts):
@@ -149,18 +149,22 @@ def generate_hdf5_image_data(params, sample_queue, writer_queue):
 def generate_hdf5_dataset(task_agents, comm_agents, samples, jobs):
 
     # generation params
-    space_side_length = 30  # length of a side of the image in meters
+    comm_range = 30         # maximum range of communication hardware
+    area_scale_factor = 0.5 # ratio of max area covered by N agents vs area of image for bbx
+    space_side_length = 170 # length of a side of the image in meters (NOTE tuned for 20 agent teams)
     img_res = 128           # pixels per side of a square image
-    kernel_std = 1.0        # standard deviation of gaussian kernel marking node positions
+    kernel_std = 5.0        # standard deviation of gaussian kernel marking node positions
     train_percent = 0.85    # samples total samples will be divided into training and testing sets
-    sample_counts = np.round(samples * (np.asarray([0,1]) + train_percent*np.asarray([1,-1]))).astype(int)
+    sample_counts = np.round(samples*(np.asarray([0,1]) + train_percent*np.asarray([1,-1]))).astype(int)
 
     # init params
     params = {}
     params['task_agents'] = task_agents
     params['comm_agents'] = comm_agents
     params['img_size'] = (img_res, img_res)
-    params['bbx'] = [0, space_side_length, 0, space_side_length]
+    params['bbx'] = adaptive_bbx(task_agents + max(comm_agents), comm_range, area_scale_factor).tolist()
+    params['area_scale_factor'] = area_scale_factor
+    params['comm_range'] = comm_range
     params['meters_per_pixel'] = space_side_length / img_res
     params['kernel_std'] = kernel_std
     params['sample_count'] = {mode: int(count) for count, mode in zip(sample_counts, ('train', 'test'))}
@@ -177,10 +181,10 @@ def generate_hdf5_dataset(task_agents, comm_agents, samples, jobs):
     with open(param_file_name, 'w') as f:
         json.dump(params, f, indent=4, separators=(',', ': '))
 
-    # these params don't need to be saved but save time to precompute
-    params['channel_model'] = PiecewiseChannel(print_values=False)
+    # these params don't need to be saved to disk but are useful to precompute
+    params['channel_model'] = ChannelModel(print_values=False)
     ij = np.stack(np.meshgrid(np.arange(img_res), np.arange(img_res), indexing='ij'), axis=2)
-    params['xy'] = params['meters_per_pixel'] * (ij + 0.5)
+    params['xy'] = params['meters_per_pixel'] * (ij + 0.5) - space_side_length/2.0
 
     # print dataset info to console
     print(f"using {img_res}x{img_res} images with {params['meters_per_pixel']} meters/pixel")
@@ -219,8 +223,8 @@ def generate_hdf5_dataset(task_agents, comm_agents, samples, jobs):
         for i in range(count):
             sd = {}
             sd['mode'] = mode
-            sd['task_config'] = np.random.random((task_agents,2)) * (bbx[1::2] - bbx[0::2]) + bbx[0::2]
-            sd['comm_config'] = np.random.random((comm_agents,2)) * (bbx[1::2] - bbx[0::2]) + bbx[0::2]
+            sd['task_config'] = np.random.random((task_agents,2)) * (bbx[1::2]-bbx[0::2]) + bbx[0::2]
+            sd['comm_config'] = np.random.random((max(comm_agents),2)) * (bbx[1::2]-bbx[0::2]) + bbx[0::2]
             sample_queue.put(sd)
 
     # each worker process exits once it receives a None
@@ -252,6 +256,7 @@ def view_hdf5_dataset(dataset_file, samples):
 
     sample_counts = [hdf5_file[m]['task_img'].shape[0] for m in ('train','test')]
     sample_idcs = [np.random.randint(0, m, size=(min(m, samples),)) for m in sample_counts]
+    bbx = params['img_size'][0] * params['meters_per_pixel'] / 2.0 * np.asarray([-1,1,-1,1])
     for idcs, mode in zip(sample_idcs, ('train','test')):
         idcs.sort()
         print(f"plotting {len(idcs)} {mode}ing samples: {', '.join(map(str, idcs))}")
@@ -264,7 +269,7 @@ def view_hdf5_dataset(dataset_file, samples):
             ax = plt.subplot(2,cols,1)
             ax.plot(task_config[:,1], task_config[:,0], 'g.', ms=4)
             ax.axis('scaled')
-            ax.axis(params['bbx'])
+            ax.axis(bbx)
             ax.invert_yaxis()
             plt.subplot(2,cols,1+cols)
             plt.imshow(hdf5_file[mode]['task_img'][idx,...])
@@ -276,7 +281,7 @@ def view_hdf5_dataset(dataset_file, samples):
                 ax.plot(task_config[:,1], task_config[:,0], 'g.', ms=4)
                 ax.plot(comm_configs[si:si+count,1], comm_configs[si:si+count,0], 'r.', ms=4)
                 ax.axis('scaled')
-                ax.axis(params['bbx'])
+                ax.axis(bbx)
                 ax.invert_yaxis()
                 plt.subplot(2,cols,j+2+cols)
                 plt.imshow(hdf5_file[mode]['comm_img'][idx,j,...])
