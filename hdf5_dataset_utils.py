@@ -15,6 +15,7 @@ import h5py
 import json
 import argparse
 from multiprocessing import Queue, Process, cpu_count
+import shutil
 
 from network_planner.connectivity_optimization import ConnectivityOpt as ConnOpt
 from socp.channel_model import PiecewiseChannel, ChannelModel
@@ -34,6 +35,11 @@ def human_readable_duration(dur):
             t_str.append(f'{int(dur / unit)}{name}')
             dur -= int(dur / unit) * unit
     return ' '.join(t_str)
+
+
+def console_width_str(msg):
+    col, _ = shutil.get_terminal_size((80,20))
+    return msg + (col - len(msg))*' '
 
 
 def kernelized_config_img(config, params):
@@ -106,9 +112,10 @@ def write_hdf5_image_data(params, filename, queue):
         it_dict[mode] += 1
         total_saved += 1
         duration_str = human_readable_duration(time.time()-t0)
-        print(f'saved sample {total_saved} of {total_samples}, elapsed time: {duration_str}    \r', end="")
+        msg = console_width_str(f'saved sample {total_saved} of {total_samples}, elapsed time: {duration_str}')
+        print('\r' + msg + '\r', end="")
 
-    print(f'generated {total_samples} samples in {duration_str}                    ')
+    print(console_width_str(f'generated {total_samples} samples in {duration_str}'))
     print(f'saved data to: {hdf5_file.filename}')
     hdf5_file.close()
 
