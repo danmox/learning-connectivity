@@ -1,4 +1,4 @@
-from socp.channel_model import PiecewiseChannel, ChannelModel
+from socp.channel_model import PiecewiseChannel, ChannelModel, LinearChannel
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from math import pi
@@ -47,24 +47,29 @@ def derivative_test(cm=PiecewiseChannel()):
 
 def channel_plot():
     pwcm = PiecewiseChannel(print_values=False)
+    lcm = LinearChannel(print_values=False)
     cm = ChannelModel(print_values=False)
 
     x = np.linspace(0.1, 40.0, num=100)
     pw_rate = np.zeros(x.shape)
     cm_rate = np.zeros(x.shape)
+    lm_rate = np.zeros(x.shape)
+    xi = np.asarray([0.0, 0.0])
     for i in range(x.shape[0]):
-        xi = np.asarray([0.0, 0.0])
         xj = np.asarray([0.0, x[i]])
         pw_rate[i], _ = pwcm.predict_link(xi, xj)
+        lm_rate[i], _ = lcm.predict_link(xi, xj)
         cm_rate[i], _ = cm.predict_link(xi,xj)
 
-    plt.plot(x, cm_rate, 'r', lw=2)
-    plt.plot(x, pw_rate, 'b--', lw=2)
+    fig, ax = plt.subplots()
+    #ax.plot(x, cm_rate, 'r', lw=2)
+    ax.plot(x, pw_rate, 'b--', lw=2)
+    #ax.plot(x, lm_rate, 'g-.', lw=2)
     plt.show()
 
 
 if __name__ == '__main__':
-    print('running derivative_test()')
-    derivative_test()
+    # print('running derivative_test()')
+    # derivative_test()
     print('running channel_plot()')
     channel_plot()
