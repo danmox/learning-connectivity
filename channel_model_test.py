@@ -62,9 +62,10 @@ def channel_plot():
         cm_rate[i], _ = cm.predict_link(xi,xj)
 
     fig, ax = plt.subplots()
-    #ax.plot(x, cm_rate, 'r', lw=2)
+    ax.plot(x, cm_rate, 'r', lw=2)
     ax.plot(x, pw_rate, 'b--', lw=2)
-    #ax.plot(x, lm_rate, 'g-.', lw=2)
+    ax.plot(x, lm_rate, 'g-.', lw=2)
+    ax.set_xlabel('distance (m)', fontsize='xx-large')
     plt.show()
 
 
