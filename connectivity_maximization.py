@@ -4,7 +4,7 @@ from socp.channel_model import PiecewiseChannel, ChannelModel, LinearChannel
 from socp.rr_socp_tests import plot_config, numpy_to_ros
 from network_planner.connectivity_optimization import ConnectivityOpt
 from hdf5_dataset_utils import adaptive_bbx
-from feasibility import construct_feasible_config
+from feasibility import feasible_sample
 from math import pi
 import cvxpy as cp
 from scipy.linalg import null_space
@@ -64,21 +64,20 @@ def conn_max_test():
     # x_task = circle_points(20, team_size)
     # x_comm = circle_points(18, team_size)
 
-    task_agents = 8
-    comm_agents = 5
+    task_agents = 5
+    comm_agents = 3
     comm_range = 30  # meters
     bbx = adaptive_bbx(task_agents + comm_agents, comm_range, 0.4)
-    x_task = np.random.random((task_agents,2)) * (bbx[1::2] - bbx[0::2]) + bbx[0::2]
-    x_comm, success = construct_feasible_config(x_task, comm_agents, comm_range)
-    if not success:
-        print(f'failed to find initial feasible configuration')
-        return
+    x_task, x_comm = feasible_sample(task_agents, comm_agents, comm_range, bbx)
 
-    # cm = PiecewiseChannel(print_values=False)
+    cm = PiecewiseChannel(print_values=False)
     # cm = ChannelModel(print_values=False)
-    cm = LinearChannel(max_range=comm_range)
+    # cm = LinearChannel(max_range=comm_range)
     co = ConnectivityOpt(cm, x_task, x_comm)
     co.maximize_connectivity(step_size=1.0, tol=1e-6, viz=True)
+
+    plot_config(x_task)
+    plot_config(co.config, task_ids=range(task_agents))
 
 
 def scale_test():

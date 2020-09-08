@@ -3,7 +3,6 @@ import numpy as np
 from socp.channel_model import PiecewiseChannel, ChannelModel, LinearChannel
 from socp.rr_socp_tests import plot_config, numpy_to_ros
 from network_planner.connectivity_optimization import ConnectivityOpt
-from hdf5_dataset_utils import adaptive_bbx
 from scipy import spatial
 from scipy.sparse.csgraph import minimum_spanning_tree
 from math import ceil, floor
@@ -107,9 +106,17 @@ def construct_feasible_config(x_task, comm_agents, comm_range):
         x_comm = np.vstack((x_comm, new_points))
 
     if x_comm.shape[0] != comm_agents:
-        import pdb;pdb.set_trace()
+        return np.zeros((0,2)), False
 
     return x_comm, True
+
+
+def feasible_sample(task_agents, comm_agents, comm_range, bbx):
+    success = False
+    while not success:
+        x_task = np.random.random((task_agents,2)) * (bbx[1::2] - bbx[0::2]) + bbx[0::2]
+        x_comm, success = construct_feasible_config(x_task, comm_agents, comm_range)
+    return x_task, x_comm
 
 
 def feasibility_test():
@@ -117,7 +124,11 @@ def feasibility_test():
     task_agents = 8
     comm_agents = 6
     comm_range = 30  # meters
-    bbx = adaptive_bbx(task_agents + comm_agents, comm_range, 0.4)
+
+    # NOTE: generated using the following command (not used here to avoid
+    # circular import):
+    # bbx = adaptive_bbx(task_agents + comm_agents, comm_range, 0.4)
+    bbx = np.asarray([-62.91587036,  62.91587036, -62.91587036,  62.91587036])
 
     x_task = np.random.random((task_agents,2)) * (bbx[1::2] - bbx[0::2]) + bbx[0::2]
     x_comm, success = construct_feasible_config(x_task, comm_agents, comm_range)
