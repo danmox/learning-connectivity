@@ -19,6 +19,7 @@ import shutil
 
 from network_planner.connectivity_optimization import ConnectivityOpt as ConnOpt
 from socp.channel_model import PiecewiseChannel, ChannelModel
+from feasibility import adaptive_bbx, min_feasible_sample
 
 
 def pos_to_subs(res, pts):
@@ -50,16 +51,6 @@ def kernelized_config_img(config, params):
         img[mask] = np.maximum(img[mask], norm.pdf(dist[mask], scale=params['kernel_std']))
     img *= 255.0 / norm.pdf(0, scale=params['kernel_std']) # normalize image to [0.0, 255.0]
     return np.clip(img, 0, 255)
-
-
-def adaptive_bbx(agent_count, comm_range=30.0, scale_factor=0.5):
-    '''
-    scale the bounding box within which agent configurations are randomly
-    sampled so that the maximum area covered by the agents is a fixed multiple
-    of the area of the bounding box
-    '''
-    side_length = np.sqrt(np.pi * agent_count * scale_factor) * comm_range
-    return side_length * np.asarray([-1, 1, -1, 1]) / 2.0
 
 
 def write_hdf5_image_data(params, filename, queue):
@@ -230,8 +221,7 @@ def generate_hdf5_dataset(task_agents, comm_agents, samples, jobs):
         for i in range(count):
             sd = {}
             sd['mode'] = mode
-            sd['task_config'] = np.random.random((task_agents,2)) * (bbx[1::2]-bbx[0::2]) + bbx[0::2]
-            sd['comm_config'] = np.random.random((max(comm_agents),2)) * (bbx[1::2]-bbx[0::2]) + bbx[0::2]
+            sd['task_config'], sd['comm_config'] = min_feasible_sample(task_agents, comm_range, bbx)
             sample_queue.put(sd)
 
     # each worker process exits once it receives a None

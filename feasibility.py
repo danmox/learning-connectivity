@@ -8,29 +8,40 @@ from scipy.sparse.csgraph import minimum_spanning_tree
 from math import ceil, floor
 
 
+def adaptive_bbx(agent_count, comm_range=30.0, scale_factor=0.5):
+    '''
+    scale the bounding box within which agent configurations are randomly
+    sampled so that the maximum area covered by the agents is a fixed multiple
+    of the area of the bounding box
+    '''
+    side_length = np.sqrt(np.pi * agent_count * scale_factor) * comm_range
+    return side_length * np.asarray([-1, 1, -1, 1]) / 2.0
+
+
 def true_idcs(arr):
+    """
+    return the indices of the elements in an interable that are True
+    """
     return {i for i, el in enumerate(arr) if el}
 
 
-def connect_graph(points, count, max_range):
+def connect_graph(points, max_dist):
     """
     Approximate a steiner tree with bounded edge length and fixed steiner points
     by computing the minimum spanning tree of the given points and placing comm
-    agents along edges greater than the comm_range until either all edges are
-    less than comm_range or comm_count agents have been placed
+    agents along edges greater than the comm_range either all edges are less than
+    max_dist
 
     inputs:
       points   - Nx2 array of points to try to connect
-      count    - number of additional points that can be added
-      max_range - maximum allowable edge length
+      max_dist - maximum allowable edge length
 
     outputs:
       new_points - Mx2 positions of the added points
-      success    - whether the resulting graph is connected
     """
 
-    d = spatial.distance_matrix(points, points)
-    mst = np.asarray(minimum_spanning_tree(d).toarray())
+    edm = spatial.distance_matrix(points, points)
+    mst = np.asarray(minimum_spanning_tree(edm).toarray())
 
     mst_edges = []
     for i in range(mst.shape[0]):
@@ -39,29 +50,21 @@ def connect_graph(points, count, max_range):
     mst_edges = sorted(mst_edges, key=lambda item: item[2], reverse=True)
 
     it = 0
-    new_points = np.zeros((count,2))
-    while it < count and mst_edges[it][2] > max_range:
+    new_points = np.zeros((0,2))
+    while it < len(mst_edges) and mst_edges[it][2] > max_dist:
         xi = points[mst_edges[it][0],:]
         xj = points[mst_edges[it][1],:]
         dist = mst_edges[it][2]
 
         arrow = (xj - xi) / dist
-        for i in range(floor(dist / max_range)):
-            new_points[it,:] = xi + arrow * dist * (i+1) / ceil(dist / max_range)
-            it += 1
-            if it == count:
-                break
-    new_points = new_points[:it,:]
+        mid_points = np.zeros((floor(dist / max_dist),2))
+        for i in range(mid_points.shape[0]):
+            mid_points[i,:] = xi + arrow * dist * (i+1) / ceil(dist / max_dist)
 
-    config = np.vstack((points, new_points))
-    d = spatial.distance_matrix(config, config)
-    mst = np.asarray(minimum_spanning_tree(d).toarray())
-    if np.max(mst) > max_range:
-        success = False
-    else:
-        success = True
+        it += 1
+        new_points = np.vstack((new_points, mid_points))
 
-    return new_points, success
+    return new_points
 
 
 def reduce_dispersion(points, count, max_range):
@@ -95,46 +98,33 @@ def reduce_dispersion(points, count, max_range):
     return new_points
 
 
-def construct_feasible_config(x_task, comm_agents, comm_range):
+def min_feasible_sample(task_agents, comm_range, bbx):
+    """
+    randomly generate a feasible task, network team pair
 
-    x_comm, success = connect_graph(x_task, comm_agents, comm_range)
-    if not success:
-        return np.zeros((0,2)), False
-    elif x_comm.shape[0] != comm_agents:
-        config = np.vstack((x_task, x_comm))
-        new_points = reduce_dispersion(config, comm_agents - x_comm.shape[0], comm_range)
-        x_comm = np.vstack((x_comm, new_points))
+    randomly sample a task team configuration with a fixed number of agents and
+    construct a cooresponding initial feasible network team configuration; if
+    the task team configuration already forms a minimum spanning tree then
+    disregard it draw a new sample until one is found that requires the support
+    of a network team
+    """
 
-    if x_comm.shape[0] != comm_agents:
-        return np.zeros((0,2)), False
-
-    return x_comm, True
-
-
-def feasible_sample(task_agents, comm_agents, comm_range, bbx):
     success = False
     while not success:
         x_task = np.random.random((task_agents,2)) * (bbx[1::2] - bbx[0::2]) + bbx[0::2]
-        x_comm, success = construct_feasible_config(x_task, comm_agents, comm_range)
+        x_comm = connect_graph(x_task, comm_range)
+        if x_comm.shape[0] != 0:
+            break
     return x_task, x_comm
 
 
 def feasibility_test():
 
-    task_agents = 8
-    comm_agents = 6
+    task_agents = np.random.randint(3, 10)
     comm_range = 30  # meters
 
-    # NOTE: generated using the following command (not used here to avoid
-    # circular import):
-    # bbx = adaptive_bbx(task_agents + comm_agents, comm_range, 0.4)
-    bbx = np.asarray([-62.91587036,  62.91587036, -62.91587036,  62.91587036])
-
-    x_task = np.random.random((task_agents,2)) * (bbx[1::2] - bbx[0::2]) + bbx[0::2]
-    x_comm, success = construct_feasible_config(x_task, comm_agents, comm_range)
-    if not success:
-        print(f'failed to find initial feasible configuration')
-        return
+    bbx = adaptive_bbx(task_agents, comm_range, 1.0)
+    x_task, x_comm = min_feasible_sample(task_agents, comm_range, bbx)
 
     plot_config(np.vstack((x_task, x_comm)), task_ids=range(task_agents))
 
