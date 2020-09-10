@@ -74,8 +74,10 @@ def conn_max_test():
     co = ConnectivityOpt(cm, x_task, x_comm)
     co.maximize_connectivity(step_size=1.0, tol=1e-6, viz=True)
 
+    rates, _ = cm.predict(co.config)
+
     plot_config(x_task)
-    plot_config(co.config, task_ids=range(task_agents))
+    plot_config(co.config, task_ids=range(task_agents), rates=rates)
 
 
 def scale_test():
