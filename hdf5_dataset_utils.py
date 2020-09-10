@@ -180,7 +180,7 @@ def generate_hdf5_dataset(task_agents, comm_agents, samples, jobs):
         json.dump(params, f, indent=4, separators=(',', ': '))
 
     # these params don't need to be saved to disk but are useful to precompute
-    params['channel_model'] = ChannelModel(print_values=False)
+    params['channel_model'] = PiecewiseChannel(print_values=False)
     ij = np.stack(np.meshgrid(np.arange(img_res), np.arange(img_res), indexing='ij'), axis=2)
     params['xy'] = params['meters_per_pixel'] * (ij + 0.5) - space_side_length/2.0
 
