@@ -51,7 +51,7 @@ def connect_graph(points, max_dist):
 
     it = 0
     new_points = np.zeros((0,2))
-    while it < len(mst_edges) and mst_edges[it][2] > max_dist:
+    while it < len(mst_edges) and not mst_edges[it][2] < max_dist:
         xi = points[mst_edges[it][0],:]
         xj = points[mst_edges[it][1],:]
         dist = mst_edges[it][2]
