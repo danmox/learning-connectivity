@@ -64,7 +64,7 @@ def conn_max_test():
     # x_comm = circle_points(18, team_size)
 
     task_agents = np.random.randint(3, 10)
-    comm_range = 30  # meters
+    comm_range = 30-1  # the channel model is 0.0 at 30m
     bbx = adaptive_bbx(task_agents, comm_range, 1.0)
     x_task, x_comm = min_feasible_sample(task_agents, comm_range, bbx)
 
@@ -74,10 +74,11 @@ def conn_max_test():
     co = ConnectivityOpt(cm, x_task, x_comm)
     co.maximize_connectivity(step_size=1.0, tol=1e-6, viz=True)
 
-    rates, _ = cm.predict(co.config)
+    task_rates, _ = cm.predict(x_task)
+    team_rates, _ = cm.predict(co.config)
 
-    plot_config(x_task)
-    plot_config(co.config, task_ids=range(task_agents), rates=rates)
+    plot_config(x_task, rates=task_rates)
+    plot_config(co.config, task_ids=range(task_agents), rates=team_rates)
 
 
 def scale_test():
