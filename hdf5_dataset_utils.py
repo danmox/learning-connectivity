@@ -248,8 +248,10 @@ def view_hdf5_dataset(dataset_file, samples):
 
     hdf5_file = h5py.File(dataset, mode='r')
 
-    sample_counts = [hdf5_file[m]['task_img'].shape[0] for m in ('train','test')]
-    sample_idcs = [np.random.randint(0, m, size=(min(m, samples),)) for m in sample_counts]
+    sample_idcs = []
+    for count in [hdf5_file[m]['task_img'].shape[0] for m in ('train','test')]:
+        sample_idcs.append(np.random.choice(count, (min(count, samples),), False))
+
     bbx = params['img_size'][0] * params['meters_per_pixel'] / 2.0 * np.asarray([-1,1,-1,1])
     for idcs, mode in zip(sample_idcs, ('train','test')):
         idcs.sort()
