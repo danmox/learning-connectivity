@@ -300,7 +300,7 @@ if __name__ == '__main__':
     view_parser.add_argument('dataset', type=str, help='dataset to view samples from')
     view_parser.add_argument('-s', '--samples', metavar='N', type=int, default=5,
                              help='number of samples to view')
-    view_parser.add_argument('--dpi', type=int, default=200, help='dpi to use for figure')
+    view_parser.add_argument('--dpi', type=int, default=150, help='dpi to use for figure')
 
     p = parser.parse_args()
 
