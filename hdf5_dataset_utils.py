@@ -256,31 +256,28 @@ def view_hdf5_dataset(dataset_file, samples):
         print(f"plotting {len(idcs)} {mode}ing samples: {', '.join(map(str, idcs))}")
         for i, idx in enumerate(idcs):
             task_config = hdf5_file[mode]['task_config'][idx,...]
-            comm_configs = hdf5_file[mode]['comm_config'][idx,...]
-            cols = len(params['comm_agents']) + 1
+            comm_config = hdf5_file[mode]['comm_config'][idx,...]
 
             # task agent configuration
-            ax = plt.subplot(2,cols,1)
+            ax = plt.subplot(2,2,1)
             ax.plot(task_config[:,1], task_config[:,0], 'g.', ms=4)
             ax.axis('scaled')
             ax.axis(bbx)
             ax.invert_yaxis()
-            plt.subplot(2,cols,1+cols)
+            plt.subplot(2,2,2)
             plt.imshow(hdf5_file[mode]['task_img'][idx,...])
 
-            # network agent configurations
-            start_idcs = np.cumsum(np.asarray([0] + params['comm_agents'][:-1]))
-            for j, si, count in zip(range(comm_configs.shape[0]), start_idcs, params['comm_agents']):
-                ax = plt.subplot(2,cols,j+2)
-                ax.plot(task_config[:,1], task_config[:,0], 'g.', ms=4)
-                ax.plot(comm_configs[si:si+count,1], comm_configs[si:si+count,0], 'r.', ms=4)
-                ax.axis('scaled')
-                ax.axis(bbx)
-                ax.invert_yaxis()
-                plt.subplot(2,cols,j+2+cols)
-                plt.imshow(hdf5_file[mode]['comm_img'][idx,j,...])
+            # network agent configuration
+            ax = plt.subplot(2,2,3)
+            ax.plot(task_config[:,1], task_config[:,0], 'g.', ms=4)
+            ax.plot(comm_config[:,1], comm_config[:,0], 'r.', ms=4)
+            ax.axis('scaled')
+            ax.axis(bbx)
+            ax.invert_yaxis()
+            plt.subplot(2,2,4)
+            plt.imshow(hdf5_file[mode]['comm_img'][idx,...])
 
-            plt.suptitle(f'sample {i+1}/{len(idcs)} with index {idx}', fontsize=14)
+            plt.suptitle(f'{mode}ing sample {i+1}/{len(idcs)} with index {idx}', fontsize=14)
             plt.show()
 
     hdf5_file.close()
