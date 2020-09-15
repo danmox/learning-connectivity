@@ -217,15 +217,23 @@ def generate_hdf5_dataset(task_agents, samples, jobs):
     # the desired behavior since we may be generating tens of thousands of
     # samples and might not want to load them into memory all at the same time
     print(f'generating {samples} samples using {num_processes} processes')
-    bbx = np.asarray(params['bbx'])
+    img_bbx = (space_side_length/2.0 - kernel_std) * np.asarray([-1,1,-1,1])
     for count, mode in zip(sample_counts, ('train','test')):
         it = 0
         while it < count:
-            x_task, x_comm = min_feasible_sample(task_agents, comm_range, bbx)
+            x_task, x_comm = min_feasible_sample(task_agents, comm_range, sample_bbx)
             if x_comm.shape[0] > params['max_comm_agents']: # NOTE fairly certain this is impossible
                 print(f'too many comm agents: {x_comm.tolist()}')
                 continue
-            sample_queue.put({'mode': mode, 'task_config': x_task, 'comm_config': x_comm})
+
+            # randomly shift the configuration so that all parts of the image
+            # are used for all team sizes
+            x = np.vstack((x_task, x_comm))
+            x_bbx = np.asarray([x[:,0].min(), x[:,0].max(), x[:,1].min(), x[:,1].max()])
+            shift_bbx = img_bbx - x_bbx
+            shift = np.random.random((1,2)) * (shift_bbx[1::2] - shift_bbx[0::2]) + shift_bbx[0::2]
+
+            sample_queue.put({'mode': mode, 'task_config': x_task+shift, 'comm_config': x_comm+shift})
             it += 1
 
     # each worker process exits once it receives a None
