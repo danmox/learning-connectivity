@@ -44,7 +44,7 @@ def show_imgs(in_imgs, net_imgs, out_imgs, show=True):
 
 class AutoEncoderCNN(nn.Module):
     def __init__(self):
-        super(AutoEncoderCNN, self).__init__()
+        super().__init__()
 
         # encoder
         self.econv1 = nn.Conv2d(1, 4, 5, padding=2)
