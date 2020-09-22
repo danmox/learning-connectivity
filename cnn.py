@@ -83,26 +83,6 @@ class AutoEncoderCNN(nn.Module):
         return x
 
 
-class ImgImgCNN(nn.Module):
-    def __init__(self):
-        super(ImgImgCNN, self).__init__()
-        self.conv1 = nn.Conv2d(1, 1, 5, padding=2)
-        self.conv2 = nn.Conv2d(1, 1, 5, padding=2)
-        self.conv3 = nn.Conv2d(1, 1, 5, padding=2)
-        self.conv4 = nn.Conv2d(1, 1, 5, padding=2)
-        self.conv5 = nn.Conv2d(1, 1, 5, padding=2)
-
-    def forward(self, x):
-
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
-        x = F.relu(self.conv4(x))
-        x = F.relu(self.conv5(x))
-
-        return x
-
-
 def np_to_tensor(data, shape, device=None):
     '''
     normalize [0, 255] image data to [0,1], convert it to a pytorch tensor and
@@ -262,29 +242,6 @@ if __name__ == '__main__':
     if not p.nolog:
         writer.close()
     print('Finished Training')
-
-    # # test network on one test instance
-
-    # test_in = hdf5_file['test']['task_img']
-    # test_out = hdf5_file['test']['comm_img']
-    # idx = np.random.randint(test_in.shape[0])
-
-    # batch = np.arange(test_in.shape[0])
-    # np.random.shuffle(batch)
-    # batch = batch.reshape((-1, batch_size))
-    # batch.sort()
-
-    # with torch.no_grad():
-
-    #     # convert the batch to a tensor and load it onto the GPU
-    #     in_ten = np_to_tensor(test_in[batch[0],...], in_shape, device)
-    #     out_ten = np_to_tensor(test_out[batch[0],...], out_shape, device)
-
-    #     # predict
-    #     net_ten = net(in_ten)
-
-    #     # show
-    #     show_imgs(in_ten, net_ten, out_ten)
 
     # save model
 
