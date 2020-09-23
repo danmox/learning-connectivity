@@ -17,10 +17,46 @@ import argparse
 from multiprocessing import Queue, Process, cpu_count
 import shutil
 from math import ceil
+import torch
+from torch.utils.data import Dataset
 
 from network_planner.connectivity_optimization import ConnectivityOpt as ConnOpt
 from socp.channel_model import PiecewiseChannel, ChannelModel
 from feasibility import adaptive_bbx, min_feasible_sample
+
+
+class ConnectivityDataset(Dataset):
+    """connectivity dataset"""
+
+    def __init__(self, file_path, train=True):
+        """assumes file_path exists"""
+        self.file_path = file_path
+        self.mode = 'train' if train else 'test'
+        self.dataset = None
+
+        with h5py.File(file_path, 'r') as f:
+            self.dataset_len = f[self.mode]['connectivity'].shape[0]
+
+    def __getitem__(self, idx):
+        # in order to use the multiprocessing capabilities provided by pytorch,
+        # the hdf5 file must be loaded after __init__ since opened hdf5 files
+        # are not pickleable:
+        # https://discuss.pytorch.org/t/dataloader-when-num-worker-0-there-is-bug/25643/16
+        if self.dataset is None:
+            self.dataset = h5py.File(self.file_path, 'r')[self.mode]
+
+        # rescale: [0,255] -> [0,1] and reshape: (X,X) -> (1, X, X)
+        x = np.expand_dims(self.dataset['task_img'][idx,...] / 255.0, axis=0)
+        y = np.expand_dims(self.dataset['comm_img'][idx,...] / 255.0, axis=0)
+
+        # convert to float tensor
+        x = torch.from_numpy(x).float()
+        y = torch.from_numpy(y).float()
+
+        return (x, y)
+
+    def __len__(self):
+        return self.dataset_len
 
 
 def pos_to_subs(res, pts):

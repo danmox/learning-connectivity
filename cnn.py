@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
+from hdf5_dataset_utils import ConnectivityDataset
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
@@ -62,7 +63,7 @@ class AutoEncoderCNN(nn.Module):
         self.dconv2 = nn.Conv2d(16, 12, 5, padding=2)
         self.dconv3 = nn.Conv2d(12, 8, 5, padding=2)
         self.dconv4 = nn.Conv2d(8, 4, 5, padding=2)
-        self.dconv5 = nn.Conv2d(4, 3, 5, padding=2)
+        self.dconv5 = nn.Conv2d(4, 1, 5, padding=2)
 
     def forward(self, x):
 
@@ -83,17 +84,6 @@ class AutoEncoderCNN(nn.Module):
         return x
 
 
-def np_to_tensor(data, shape, device=None):
-    '''
-    normalize [0, 255] image data to [0,1], convert it to a pytorch tensor and
-    load it on to the device, if provided
-    '''
-    if device is None:
-        return torch.from_numpy((data / 255.0).reshape(shape)).float()
-    else:
-        return torch.from_numpy((data / 255.0).reshape(shape)).float().to(device)
-
-
 if __name__ == '__main__':
 
     # argparsing
@@ -109,11 +99,12 @@ if __name__ == '__main__':
 
     # load dataset
 
-    dataset = Path(p.dataset)
-    if not dataset.exists():
-        print(f'provided dataset {dataset} not found')
+    dataset_path = Path(p.dataset)
+    if not dataset_path.exists():
+        print(f'provided dataset {dataset_path} not found')
         exit(1)
-    hdf5_file = h5py.File(dataset, mode='r')
+    train_dataset = ConnectivityDataset(dataset_path, train=True)
+    test_dataset = ConnectivityDataset(dataset_path, train=False)
 
     # initialize training device, using GPU if available
 
@@ -142,15 +133,9 @@ if __name__ == '__main__':
 
     # initialize training parameters
 
-    train_in = hdf5_file['train']['task_img']
-    train_out = hdf5_file['train']['comm_img']
-    out_layers = train_out.shape[1]
-    img_res = train_in.shape[1]
-    batch_size = 5 # NOTE use powers of 2?
     epochs = p.epochs
     update_interval = 100  # print loss after this many training steps
-    in_shape = (batch_size, 1, img_res, img_res)
-    out_shape = (batch_size, out_layers, img_res, img_res)
+    trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=4)
 
     # train network
 
@@ -163,18 +148,14 @@ if __name__ == '__main__':
     while train:
 
         # loop over the dataset multiple times
-
         for epoch in range(epochs):
 
             running_loss = 0.0
-            batch = np.arange(train_in.shape[0])
-            np.random.shuffle(batch)
-            batch = batch.reshape((-1, batch_size))
-            batch.sort()
-            for i in range(batch.shape[0]):
+            for i, data in enumerate(trainloader, 0):
 
-                in_ten = np_to_tensor(train_in[batch[i],...], in_shape, device)
-                out_ten = np_to_tensor(train_out[batch[i],...], out_shape, device)
+                in_ten, out_ten = data
+                in_ten.to(device)
+                out_ten.to(device)
 
                 # zero the parameter gradients
                 optimizer.zero_grad()
@@ -202,18 +183,19 @@ if __name__ == '__main__':
             # show learning progress in tensorboard
 
             with torch.no_grad():
-                in_ten = np_to_tensor(train_in[0:batch_size,...], in_shape, device)
+                dataiter = iter(trainloader)
+                in_ten, out_ten = dataiter.next()
+                in_ten = in_ten.to(device)
                 net_ten = net(in_ten)
 
                 ten_list = []
-                out_ten = np_to_tensor(train_out[0:batch_size,...], out_shape)
-                img_shape = (1, img_res, img_res)
-                for i in range(batch_size):
+                sample_count = in_ten.shape[0]
+                for i in range(sample_count):
                     ten_list.append(in_ten[i].cpu().detach())
-                    ten_list += [net_ten[i,j].cpu().detach().reshape(img_shape) for j in range(out_layers)]
-                    ten_list += [out_ten[i,j].reshape(img_shape) for j in range(out_layers)]
+                    ten_list.append(net_ten[i].cpu().detach())
+                    ten_list.append(out_ten[i])
 
-                grid = make_grid(ten_list, nrow=2*out_layers+1, padding=20, pad_value=1)
+                grid = make_grid(ten_list, nrow=2, padding=20, pad_value=1)
                 writer.add_image('results', grid, global_step=total_epochs+epoch+1)
 
         total_epochs += epochs
