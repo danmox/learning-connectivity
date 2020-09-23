@@ -7,6 +7,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from hdf5_dataset_utils import ConnectivityDataset
+import pytorch_lightning as pl
+from pytorch_lightning import loggers as pl_loggers
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
@@ -51,7 +53,9 @@ def show_imgs(x, z, y, show=True):
         plt.show()
 
 
-class AutoEncoderCNN(nn.Module):
+class UAEModel(pl.LightningModule):
+    """undercomplete auto encoder for learning connectivity from images"""
+
     def __init__(self):
         super().__init__()
 
@@ -73,6 +77,8 @@ class AutoEncoderCNN(nn.Module):
         self.dconv4 = nn.Conv2d(8, 4, 5, padding=2)
         self.dconv5 = nn.Conv2d(4, 1, 5, padding=2)
 
+        # TODO randomize initialization
+
     def forward(self, x):
 
         # encoder
@@ -91,6 +97,20 @@ class AutoEncoderCNN(nn.Module):
 
         return x
 
+    def configure_optimizers(self):
+        optimizer = optim.Adam(net.parameters(), lr=1e-6) # NOTE start low and increase
+        return optimizer
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self(x)
+        loss = F.mse_loss(y_hat, y)
+
+        result = pl.TrainResult(minimize=loss)
+        result.log('train_loss', loss, on_step=True)
+
+        return result
+
 
 if __name__ == '__main__':
 
@@ -103,147 +123,38 @@ if __name__ == '__main__':
     parser.add_argument('--nolog', action='store_true', help='disable logging')
     parser.add_argument('--noask', action='store_true',
                         help='skip asking user to continue training beyond given number of epochs')
-    p = parser.parse_args()
+    args = parser.parse_args()
 
     # load dataset
 
-    dataset_path = Path(p.dataset)
+    dataset_path = Path(args.dataset)
     if not dataset_path.exists():
         print(f'provided dataset {dataset_path} not found')
         exit(1)
     train_dataset = ConnectivityDataset(dataset_path, train=True)
     test_dataset = ConnectivityDataset(dataset_path, train=False)
 
-    # initialize training device, using GPU if available
-
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    print(f'training with device: {device}')
-
     # initialize model or load an existing one
 
-    if p.model is None:
-        net = AutoEncoderCNN() # TODO randomize initialization
+    if args.model is None:
+        net = UAEModel()
         print(f'initialized new network with {count_parameters(net)} parameters')
     else:
-        model_file = Path(p.model)
+        model_file = Path(args.model)
         if not model_file.exists():
             print(f'provided model {model_file} not found')
             exit(1)
-        net = AutoEncoderCNN()
+        net = UAEModel()
         net.load_state_dict(torch.load(model_file))
         print(f'loaded model from {model_file} with {count_parameters(net)} parameters')
-    net.to(device)
-
-    # define loss and optimizer
-
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(net.parameters(), lr=1e-6) # NOTE start low and increase
-
-    # initialize training parameters
-
-    epochs = p.epochs
-    update_interval = 100  # print loss after this many training steps
-    trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=4)
 
     # train network
 
-    if not p.nolog:
-        writer = SummaryWriter()
-    loss_it = 0
-    total_epochs = 0
-    train = True
+    # TODO training device?
 
-    while train:
+    trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=4, num_workers=4)
 
-        # loop over the dataset multiple times
-        for epoch in range(epochs):
-
-            running_loss = 0.0
-            for i, data in enumerate(trainloader, 0):
-
-                in_ten, out_ten = data
-                in_ten.to(device)
-                out_ten.to(device)
-
-                # zero the parameter gradients
-                optimizer.zero_grad()
-
-                # predict
-                net_ten = net(in_ten)
-
-                # backprop + optimize
-                loss = criterion(net_ten, out_ten)
-                loss.backward()
-                optimizer.step()
-
-                # print statistics
-                running_loss += loss.item()
-                if i % update_interval == (update_interval-1):
-                    if not p.nolog:
-                        writer.add_scalar('loss', running_loss / update_interval, loss_it)
-                    loss_it += 1
-                    print(f'[{total_epochs+epoch+1:3d}, {i+1:4d}] loss: {running_loss/update_interval:.5f}')
-                    running_loss = 0.0
-
-            if p.nolog:
-                continue
-
-            # show learning progress in tensorboard
-
-            with torch.no_grad():
-                dataiter = iter(trainloader)
-                in_ten, out_ten = dataiter.next()
-                in_ten = in_ten.to(device)
-                net_ten = net(in_ten)
-
-                show_imgs(in_ten, net_ten, out_ten)
-
-                ten_list = []
-                sample_count = in_ten.shape[0]
-                for i in range(sample_count):
-                    ten_list.append(in_ten[i].cpu().detach())
-                    ten_list.append(net_ten[i].cpu().detach())
-                    ten_list.append(out_ten[i])
-
-                grid = make_grid(ten_list, nrow=2, padding=20, pad_value=1)
-                writer.add_image('results', grid, global_step=total_epochs+epoch+1)
-
-        total_epochs += epochs
-        print(f'completed {total_epochs} epochs of training')
-
-        # ask user if they want to extend training
-
-        if p.noask:
-            break
-        else:
-            user_input = '-'
-            while user_input not in ['y','N','n','']:
-                user_input = input('continue training (y/N)?: ')
-            if user_input in ['','N','n']:
-                break
-            else:
-                while True:
-                    try:
-                        user_input = input('enter number of additional epochs to train: ')
-                        epochs = int(user_input)
-                        break
-                    except:
-                        print('enter a valid integer')
-                        pass
-
-    if not p.nolog:
-        writer.close()
-    print('Finished Training')
-
-    # save model
-
-    user_input = '-'
-    while user_input not in ['y','Y','n','']:
-        user_input = input('save model (Y/n)?: ')
-    if user_input in ['y','Y','']:
-        timestamp = datetime.now().strftime('%Y%m%d-%H%M')
-        model_file = Path(__file__).resolve().parent / 'models' / ('connectivity_' + timestamp + '.pth')
-        torch.save(net.state_dict(), model_file)
-        print(f'saved model to {model_file}')
-    else:
-        print('model not saved to file')
+    model = UAEModel()
+    pl_logger = pl_loggers.TensorBoardLogger('runs/')
+    trainer = pl.Trainer(logger=pl_logger, max_epochs=args.epochs)
+    trainer.fit(model, trainloader)
