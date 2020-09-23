@@ -23,22 +23,30 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-def show_imgs(in_imgs, net_imgs, out_imgs, show=True):
-    assert(in_imgs.shape[0] == net_imgs.shape[0] == out_imgs.shape[0] and net_imgs.shape == out_imgs.shape)
-    num_layers = net_imgs.shape[1]
-    num_rows = in_imgs.shape[0]
-    num_cols = 2*num_layers+1
-    for i in range(num_rows):
-        in_tmp = torch.clamp(in_imgs[i] * 255.0, 0, 255).cpu().detach().numpy().astype(np.uint8).squeeze()
-        net_tmp = torch.clamp(net_imgs[i] * 255.0, 0, 255).cpu().detach().numpy().astype(np.uint8).squeeze()
-        out_tmp = torch.clamp(out_imgs[i] * 255.0, 0, 255).cpu().detach().numpy().astype(np.uint8).squeeze()
-        plt.subplot(num_rows, num_cols, i*num_cols+1)
-        plt.imshow(in_tmp)
-        for j in range(num_layers):
-            plt.subplot(num_rows, num_cols, i*num_cols+2+j)
-            plt.imshow(net_tmp[j,...])
-            plt.subplot(num_rows, num_cols, i*num_cols+2+num_layers+j)
-            plt.imshow(out_tmp[j,...])
+def show_imgs(x, z, y, show=True):
+    """
+    plot results of model
+
+    inputs:
+      x    - the input to the network
+      z    - the output of the network
+      y    - the desired output
+      show - whether or not to call the blocking show function of matplotlib
+    """
+    assert(x.shape[0] == z.shape[0] == y.shape[0] and z.shape == y.shape)
+    layers = z.shape[1]
+    rows = x.shape[0]
+    cols = 2*layers+1
+    for i in range(rows):
+        x_tmp = torch.clamp(x[i] * 255.0, 0, 255).cpu().detach().numpy().astype(np.uint8).squeeze()
+        z_tmp = torch.clamp(z[i] * 255.0, 0, 255).cpu().detach().numpy().astype(np.uint8).squeeze()
+        y_tmp = torch.clamp(y[i] * 255.0, 0, 255).cpu().detach().numpy().astype(np.uint8).squeeze()
+        plt.subplot(rows, cols, i*cols+1)
+        plt.imshow(x_tmp)
+        plt.subplot(rows, cols, i*cols+2)
+        plt.imshow(z_tmp)
+        plt.subplot(rows, cols, i*cols+3)
+        plt.imshow(y_tmp)
     if show:
         plt.show()
 
@@ -187,6 +195,8 @@ if __name__ == '__main__':
                 in_ten, out_ten = dataiter.next()
                 in_ten = in_ten.to(device)
                 net_ten = net(in_ten)
+
+                show_imgs(in_ten, net_ten, out_ten)
 
                 ten_list = []
                 sample_count = in_ten.shape[0]
