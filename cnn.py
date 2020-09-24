@@ -5,7 +5,7 @@ from torchvision.utils import make_grid
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data import DataLoader
 from hdf5_dataset_utils import ConnectivityDataset
 import pytorch_lightning as pl
 from pytorch_lightning import loggers as pl_loggers
@@ -16,9 +16,8 @@ from pathlib import Path
 import h5py
 from datetime import datetime
 import argparse
-
-# helps the figures to be readable on hidpi screens
-mpl.rcParams['figure.dpi'] = 200
+import os
+from math import ceil
 
 
 def count_parameters(model):
@@ -53,11 +52,36 @@ def show_imgs(x, z, y, show=True):
         plt.show()
 
 
+class RingBuffer:
+    def __init__(self, size):
+        self.size = size
+        self.data = np.zeros((size,))
+        self.initialized = np.zeros((size,), dtype=bool)
+        self.it = 0
+
+    def insert(self, item):
+        self.data[self.it] = item
+        self.initialized[self.it] = True
+        self.it = (self.it + 1) % self.size
+
+    def mean(self):
+        return np.mean(self.data[self.initialized])
+
+    def clear(self):
+        self.initialized[:] = False
+
+
 class UAEModel(pl.LightningModule):
     """undercomplete auto encoder for learning connectivity from images"""
 
-    def __init__(self):
+    def __init__(self, log_step=1):
         super().__init__()
+
+        # want logging frequency less than every training iteration and more
+        # than every epoch
+        self.log_step = log_step
+        self.loss_hist = RingBuffer(log_step)
+        self.log_it = 0
 
         # encoder
         self.econv1 = nn.Conv2d(1, 4, 5, padding=2)
@@ -106,10 +130,12 @@ class UAEModel(pl.LightningModule):
         y_hat = self(x)
         loss = F.mse_loss(y_hat, y)
 
-        result = pl.TrainResult(minimize=loss)
-        result.log('train_loss', loss, on_step=True)
+        self.loss_hist.insert(loss)
+        if batch_idx != 0 and self.loss_hist.it == 0:
+            self.logger.experiment.add_scalar('loss', self.loss_hist.mean(), self.log_it)
+            self.log_it += 1
 
-        return result
+        return loss
 
 
 if __name__ == '__main__':
@@ -145,16 +171,17 @@ if __name__ == '__main__':
             print(f'provided model {model_file} not found')
             exit(1)
         net = UAEModel()
+        # TODO load saved checkpoint
         net.load_state_dict(torch.load(model_file))
         print(f'loaded model from {model_file} with {count_parameters(net)} parameters')
 
     # train network
 
-    # TODO training device?
+    cpus = os.cpu_count()
+    gpus = 1 if torch.cuda.is_available() else 0
 
-    trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=4, num_workers=4)
-
-    model = UAEModel()
-    pl_logger = pl_loggers.TensorBoardLogger('runs/')
-    trainer = pl.Trainer(logger=pl_logger, max_epochs=args.epochs)
+    trainloader = DataLoader(train_dataset, batch_size=4, num_workers=cpus)
+    model = UAEModel(log_step=ceil(len(trainloader)/100)) # log loss ~100 times per epoch
+    logger = pl_loggers.TensorBoardLogger('runs/', name='')
+    trainer = pl.Trainer(logger=logger, max_epochs=args.epochs, weights_summary='full', gpus=gpus)
     trainer.fit(model, trainloader)
