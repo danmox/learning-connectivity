@@ -21,7 +21,7 @@ import torch
 from torch.utils.data import Dataset
 
 from network_planner.connectivity_optimization import ConnectivityOpt as ConnOpt
-from socp.channel_model import PiecewiseChannel, ChannelModel
+from socp.channel_model import PiecewisePathLossModel, PathLossModel
 from feasibility import adaptive_bbx, min_feasible_sample
 
 

@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from socp.channel_model import PiecewiseChannel, ChannelModel, LinearChannel
+from socp.channel_model import PiecewisePathLossModel, PathLossModel, LinearModel
 from socp.rr_socp_tests import plot_config, numpy_to_ros
 from network_planner.connectivity_optimization import ConnectivityOpt
 from scipy import spatial
