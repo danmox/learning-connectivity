@@ -57,6 +57,9 @@ class UAEModel(pl.LightningModule):
     def __init__(self, log_step=1):
         super().__init__()
 
+        # cache some data to show learning progress
+        self.progress_batch = None
+
         # want logging frequency less than every training iteration and more
         # than every epoch
         self.log_step = log_step
@@ -106,6 +109,10 @@ class UAEModel(pl.LightningModule):
         return optimizer
 
     def training_step(self, batch, batch_idx):
+        # set aside some data to show learning progress
+        if self.progress_batch is None:
+            self.progress_batch = batch
+
         x, y = batch
         y_hat = self(x)
         loss = F.mse_loss(y_hat, y)
@@ -118,11 +125,32 @@ class UAEModel(pl.LightningModule):
 
         return loss
 
+    # provide visual feedback of the learning progress after every epoch
+    def training_epoch_end(self, outs):
+        torch.set_grad_enabled(False)
+        self.eval()
+
+        x, y = self.progress_batch
+        y_hat = self(x)
+
+        img_list = []
+        for i in range(x.shape[0]):
+            img_list.append(x[i,...].cpu().detach())
+            img_list.append(y_hat[i,...].cpu().detach())
+            img_list.append(y[i,...].cpu().detach())
+
+        grid = make_grid(img_list, nrow=3, padding=20, pad_value=1)
+        self.logger.experiment.add_image('results', grid, self.current_epoch)
+
+        torch.set_grad_enabled(True)
+        self.train()
+
 
 if __name__ == '__main__':
 
     # argparsing
 
+    # TODO revise args
     parser = argparse.ArgumentParser(description='train connectivity CNN')
     parser.add_argument('dataset', type=str, help='dataset for training / testing')
     parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train for')
