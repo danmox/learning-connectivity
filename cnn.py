@@ -51,10 +51,10 @@ def show_imgs(x, z, y, show=True):
         plt.show()
 
 
-class UAEModel(pl.LightningModule):
-    """undercomplete auto encoder for learning connectivity from images"""
+class AEBase(pl.LightningModule):
+    """base class for connectivity autoencoder models"""
 
-    def __init__(self, log_step=1):
+    def __init__(self, log_step):
         super().__init__()
 
         # cache some data to show learning progress
@@ -65,6 +65,33 @@ class UAEModel(pl.LightningModule):
         self.log_step = log_step
         self.loss_hist = 0.0
         self.log_it = 0
+
+    # provide visual feedback of the learning progress after every epoch
+    def training_epoch_end(self, outs):
+        torch.set_grad_enabled(False)
+        self.eval()
+
+        x, y = self.progress_batch
+        y_hat = self(x)
+
+        img_list = []
+        for i in range(x.shape[0]):
+            img_list.append(x[i,...].cpu().detach())
+            img_list.append(y_hat[i,...].cpu().detach())
+            img_list.append(y[i,...].cpu().detach())
+
+        grid = make_grid(img_list, nrow=3, padding=20, pad_value=1)
+        self.logger.experiment.add_image('results', grid, self.current_epoch)
+
+        torch.set_grad_enabled(True)
+        self.train()
+
+
+class UAEModel(AEBase):
+    """undercomplete auto encoder for learning connectivity from images"""
+
+    def __init__(self, log_step=1):
+        super().__init__(log_step)
 
         # encoder
         self.econv1 = nn.Conv2d(1, 4, 5, padding=2)
