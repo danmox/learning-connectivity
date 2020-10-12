@@ -13,7 +13,6 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
 from pathlib import Path
-import h5py
 from datetime import datetime
 import argparse
 import os
@@ -52,25 +51,6 @@ def show_imgs(x, z, y, show=True):
         plt.show()
 
 
-class RingBuffer:
-    def __init__(self, size):
-        self.size = size
-        self.data = np.zeros((size,))
-        self.initialized = np.zeros((size,), dtype=bool)
-        self.it = 0
-
-    def insert(self, item):
-        self.data[self.it] = item
-        self.initialized[self.it] = True
-        self.it = (self.it + 1) % self.size
-
-    def mean(self):
-        return np.mean(self.data[self.initialized])
-
-    def clear(self):
-        self.initialized[:] = False
-
-
 class UAEModel(pl.LightningModule):
     """undercomplete auto encoder for learning connectivity from images"""
 
@@ -80,7 +60,7 @@ class UAEModel(pl.LightningModule):
         # want logging frequency less than every training iteration and more
         # than every epoch
         self.log_step = log_step
-        self.loss_hist = RingBuffer(log_step)
+        self.loss_hist = 0.0
         self.log_it = 0
 
         # encoder
@@ -122,7 +102,7 @@ class UAEModel(pl.LightningModule):
         return x
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(net.parameters(), lr=1e-6) # NOTE start low and increase
+        optimizer = optim.Adam(net.parameters(), lr=1e-7) # NOTE start low and increase
         return optimizer
 
     def training_step(self, batch, batch_idx):
@@ -130,9 +110,10 @@ class UAEModel(pl.LightningModule):
         y_hat = self(x)
         loss = F.mse_loss(y_hat, y)
 
-        self.loss_hist.insert(loss)
-        if batch_idx != 0 and self.loss_hist.it == 0:
-            self.logger.experiment.add_scalar('loss', self.loss_hist.mean(), self.log_it)
+        self.loss_hist += loss.item()
+        if batch_idx != 0 and batch_idx % self.log_step == 0:
+            self.logger.experiment.add_scalar('loss', self.loss_hist / self.log_step, self.log_it)
+            self.loss_hist = 0.0
             self.log_it += 1
 
         return loss
