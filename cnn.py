@@ -105,7 +105,7 @@ class UAEModel(pl.LightningModule):
         return x
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(net.parameters(), lr=1e-7) # NOTE start low and increase
+        optimizer = optim.Adam(self.parameters(), lr=0.00001) # NOTE start low and increase
         return optimizer
 
     def training_step(self, batch, batch_idx):
