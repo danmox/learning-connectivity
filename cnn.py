@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 from hdf5_dataset_utils import ConnectivityDataset
 import pytorch_lightning as pl
 from pytorch_lightning import loggers as pl_loggers
+from torch.autograd import Variable
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
@@ -72,7 +73,7 @@ class AEBase(pl.LightningModule):
         self.eval()
 
         x, y = self.progress_batch
-        y_hat = self(x)
+        y_hat = self.output(x)
 
         img_list = []
         for i in range(x.shape[0]):
@@ -131,6 +132,9 @@ class UAEModel(AEBase):
 
         return x
 
+    def output(self, x):
+        return self(x)
+
     def configure_optimizers(self):
         optimizer = optim.Adam(self.parameters(), lr=0.00001) # NOTE start low and increase
         return optimizer
@@ -152,25 +156,126 @@ class UAEModel(AEBase):
 
         return loss
 
-    # provide visual feedback of the learning progress after every epoch
-    def training_epoch_end(self, outs):
-        torch.set_grad_enabled(False)
-        self.eval()
 
-        x, y = self.progress_batch
-        y_hat = self(x)
+class View(nn.Module):
+    """helper class to provide view functionality in sequential containers"""
+    def __init__(self, size):
+        super().__init__()
+        self.size = size
 
-        img_list = []
-        for i in range(x.shape[0]):
-            img_list.append(x[i,...].cpu().detach())
-            img_list.append(y_hat[i,...].cpu().detach())
-            img_list.append(y[i,...].cpu().detach())
+    def forward(self, tensor):
+        return tensor.view(self.size)
 
-        grid = make_grid(img_list, nrow=3, padding=20, pad_value=1)
-        self.logger.experiment.add_image('results', grid, self.current_epoch)
 
-        torch.set_grad_enabled(True)
-        self.train()
+class BetaVAEModel(AEBase):
+    """Beta Variational Auto Encoder class for learning connectivity from images
+
+    based on BetaVAE_B from https://github.com/1Konny/Beta-VAE/blob/master/model.py
+    which is based on: https://arxiv.org/abs/1804.03599
+
+    """
+
+    def __init__(self, beta, z_dim, kld_weight, log_step=1):
+        super().__init__(log_step)
+
+        self.beta = beta
+        self.kld_weight = kld_weight
+        self.z_dim = z_dim # dimension of latent distribution
+
+        self.encoder = nn.Sequential(            #  1, 128, 128 (input)
+            nn.Conv2d(1, 32, 4, 2, 1),           # 32,  64,  64
+            nn.ReLU(True),
+            nn.Conv2d(32, 32, 4, 2, 1),          # 32,  32,  32
+            nn.ReLU(True),
+            nn.Conv2d(32, 32, 4, 2, 1),          # 32,  16,  16
+            nn.ReLU(True),
+            nn.Conv2d(32, 32, 4, 2, 1),          # 32,   8,   8
+            nn.ReLU(True),
+            nn.Conv2d(32, 32, 4, 2, 1),          # 32,   4,   4
+            nn.ReLU(True),
+            View((-1, 32*4*4)),                  # 512
+            nn.Linear(32*4*4, 256),              # 256
+            nn.ReLU(True),
+            nn.Linear(256, 256),                 # 256
+            nn.ReLU(True),
+            nn.Linear(256, 2*z_dim)              # 2 x z_dim
+        )
+
+        self.decoder = nn.Sequential(
+            nn.Linear(z_dim, 256),               # 256
+            nn.ReLU(True),
+            nn.Linear(256, 256),                 # 256
+            nn.ReLU(True),
+            nn.Linear(256, 32*4*4),              # 512
+            nn.ReLU(True),
+            View((-1, 32, 4, 4)),                # 32,   4,   4
+            nn.ConvTranspose2d(32, 32, 4, 2, 1), # 32,   8,   8
+            nn.ReLU(True),
+            nn.ConvTranspose2d(32, 32, 4, 2, 1), # 32,  16,  16
+            nn.ReLU(True),
+            nn.ConvTranspose2d(32, 32, 4, 2, 1), # 32,  32,  32
+            nn.ReLU(True),
+            nn.ConvTranspose2d(32, 32, 4, 2, 1), # 32,  64,  64
+            nn.ReLU(True),
+            nn.ConvTranspose2d(32, 1, 4, 2, 1),  # 32, 128, 128
+        )
+
+        # initialize weights
+        for block in self._modules:
+            for m in self._modules[block]:
+                if isinstance(m, (nn.Linear, nn.Conv2d)):
+                    nn.init.kaiming_normal(m.weight)
+                    if m.bias is not None:
+                        m.bias.data.fill_(0)
+                elif isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):
+                    m.weight.data.fill_(1)
+                    if m.bias is not None:
+                        m.bias.data.fill_(0)
+
+    def forward(self, x):
+
+        # encoder spits out latent distribution as a single 32x1 vector with the
+        # first 16 elements corresponding to the mean and the last 16 elements
+        # corresponding to the log of the variance
+        latent_distribution = self.encoder(x)
+        mu = latent_distribution[:, :16]
+        logvar = latent_distribution[:, 16:]
+
+        # generate the input to the decoder using the reparameterization trick
+        std = logvar.div(2).exp()
+        eps = Variable(std.data.new(std.size()).normal_())
+        z = mu + std*eps
+
+        out = self.decoder(z)
+
+        return out, mu, logvar
+
+    def output(self, x):
+        return self(x)[0]
+
+    def configure_optimizers(self):
+        optimizer = optim.Adam(self.parameters(), lr=1e-4)
+        return optimizer
+
+    def training_step(self, batch, batch_idx):
+        # set aside some data to show learning progress
+        if self.progress_batch is None:
+            self.progress_batch = batch
+
+        x, y = batch
+        y_hat, mu, logvar = self(x)
+
+        recon_loss = F.mse_loss(y_hat, y)
+        kld_loss = torch.mean(-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1), dim=0)
+        loss = recon_loss + self.beta * self.kld_weight * kld_loss
+
+        self.loss_hist += loss.item()
+        if batch_idx != 0 and batch_idx % self.log_step == 0:
+            self.logger.experiment.add_scalar('loss', self.loss_hist / self.log_step, self.log_it)
+            self.loss_hist = 0.0
+            self.log_it += 1
+
+        return loss
 
 
 if __name__ == '__main__':
@@ -196,20 +301,7 @@ if __name__ == '__main__':
     train_dataset = ConnectivityDataset(dataset_path, train=True)
     test_dataset = ConnectivityDataset(dataset_path, train=False)
 
-    # initialize model or load an existing one
-
-    if args.model is None:
-        net = UAEModel()
-        print(f'initialized new network with {count_parameters(net)} parameters')
-    else:
-        model_file = Path(args.model)
-        if not model_file.exists():
-            print(f'provided model {model_file} not found')
-            exit(1)
-        net = UAEModel()
-        # TODO load saved checkpoint
-        net.load_state_dict(torch.load(model_file))
-        print(f'loaded model from {model_file} with {count_parameters(net)} parameters')
+    # TODO initialize model or load an existing one
 
     # train network
 
@@ -217,7 +309,8 @@ if __name__ == '__main__':
     gpus = 1 if torch.cuda.is_available() else 0
 
     trainloader = DataLoader(train_dataset, batch_size=4, num_workers=cpus)
-    model = UAEModel(log_step=ceil(len(trainloader)/100)) # log loss ~100 times per epoch
+    model = BetaVAEModel(beta=1.0, z_dim=16, kld_weight=1.0/len(trainloader),
+                         log_step=ceil(len(trainloader)/100)) # log loss ~100 times per epoch
     logger = pl_loggers.TensorBoardLogger('runs/', name='')
     trainer = pl.Trainer(logger=logger, max_epochs=args.epochs, weights_summary='full', gpus=gpus)
     trainer.fit(model, trainloader)
