@@ -81,7 +81,7 @@ class AEBase(pl.LightningModule):
             img_list.append(y_hat[i,...].cpu().detach())
             img_list.append(y[i,...].cpu().detach())
 
-        grid = make_grid(img_list, nrow=3, padding=20, pad_value=1)
+        grid = torch.clamp(make_grid(img_list, nrow=3, padding=20, pad_value=1), 0.0, 1.0)
         self.logger.experiment.add_image('results', grid, self.current_epoch)
 
         torch.set_grad_enabled(True)
@@ -217,14 +217,14 @@ class BetaVAEModel(AEBase):
             nn.ReLU(True),
             nn.ConvTranspose2d(32, 32, 4, 2, 1), # 32,  64,  64
             nn.ReLU(True),
-            nn.ConvTranspose2d(32, 1, 4, 2, 1),  # 32, 128, 128
+            nn.ConvTranspose2d(32, 1, 4, 2, 1)   # 32, 128, 128
         )
 
         # initialize weights
         for block in self._modules:
             for m in self._modules[block]:
                 if isinstance(m, (nn.Linear, nn.Conv2d)):
-                    nn.init.kaiming_normal(m.weight)
+                    nn.init.kaiming_normal_(m.weight)
                     if m.bias is not None:
                         m.bias.data.fill_(0)
                 elif isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):
