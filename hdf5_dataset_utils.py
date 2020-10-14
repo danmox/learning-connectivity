@@ -216,7 +216,7 @@ def generate_hdf5_dataset(task_agents, samples, jobs):
 
     # these params don't need to be saved to disk
     params['sample_count'] = {mode: int(count) for count, mode in zip(sample_counts, ('train', 'test'))}
-    params['channel_model'] = PiecewiseChannel(print_values=False)
+    params['channel_model'] = PiecewisePathLossModel(print_values=False)
     ij = np.stack(np.meshgrid(np.arange(img_res), np.arange(img_res), indexing='ij'), axis=2)
     params['xy'] = params['meters_per_pixel'] * (ij + 0.5) - space_side_length/2.0
     params['max_comm_agents'] = 3 * ceil((sample_bbx[1] - sample_bbx[0]) / comm_range)
