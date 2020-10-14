@@ -58,7 +58,8 @@ class AEBase(pl.LightningModule):
         super().__init__()
 
         # cache some data to show learning progress
-        self.progress_batch = None
+        self.train_progress_batch = None
+        self.val_progress_batch = None
 
         # want logging frequency less than every training iteration and more
         # than every epoch
@@ -66,12 +67,9 @@ class AEBase(pl.LightningModule):
         self.loss_hist = 0.0
         self.log_it = 0
 
-    # provide visual feedback of the learning progress after every epoch
-    def training_epoch_end(self, outs):
-        torch.set_grad_enabled(False)
-        self.eval()
-
-        x, y = self.progress_batch
+    # log network output for a single batch
+    def log_network_image(self, batch, name):
+        x, y = batch
         y_hat = self.output(x)
 
         img_list = []
@@ -81,7 +79,14 @@ class AEBase(pl.LightningModule):
             img_list.append(y[i,...].cpu().detach())
 
         grid = torch.clamp(make_grid(img_list, nrow=3, padding=20, pad_value=1), 0.0, 1.0)
-        self.logger.experiment.add_image('results', grid, self.current_epoch)
+        self.logger.experiment.add_image(name, grid, self.current_epoch)
+
+    # provide visual feedback of the learning progress after every epoch
+    def training_epoch_end(self, outs):
+        torch.set_grad_enabled(False)
+        self.eval()
+
+        self.log_network_image(self.train_progress_batch, 'train_results')
 
         torch.set_grad_enabled(True)
         self.train()
@@ -140,8 +145,8 @@ class UAEModel(AEBase):
 
     def training_step(self, batch, batch_idx):
         # set aside some data to show learning progress
-        if self.progress_batch is None:
-            self.progress_batch = batch
+        if self.train_progress_batch is None:
+            self.train_progress_batch = batch
 
         x, y = batch
         y_hat = self(x)
@@ -256,11 +261,7 @@ class BetaVAEModel(AEBase):
         optimizer = optim.Adam(self.parameters(), lr=1e-4)
         return optimizer
 
-    def training_step(self, batch, batch_idx):
-        # set aside some data to show learning progress
-        if self.progress_batch is None:
-            self.progress_batch = batch
-
+    def shared_step(self, batch):
         x, y = batch
         y_hat, mu, logvar = self(x)
 
@@ -268,13 +269,36 @@ class BetaVAEModel(AEBase):
         kld_loss = torch.mean(-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1), dim=0)
         loss = recon_loss + self.beta * self.kld_weight * kld_loss
 
+        return loss
+
+    def training_step(self, batch, batch_idx):
+        # set aside some data to show learning progress on training data
+        if self.train_progress_batch is None:
+            self.train_progress_batch = batch
+
+        loss = self.shared_step(batch)
+
         self.loss_hist += loss.item()
         if batch_idx != 0 and batch_idx % self.log_step == 0:
-            self.logger.experiment.add_scalar('loss', self.loss_hist / self.log_step, self.log_it)
+            self.logger.experiment.add_scalar('train_loss', self.loss_hist / self.log_step, self.log_it)
             self.loss_hist = 0.0
             self.log_it += 1
 
         return loss
+
+    def validation_step(self, batch, batch_idx):
+        # set aside some data to show network performance on validation data
+        if self.val_progress_batch is None:
+            self.val_progress_batch = batch
+
+        return self.shared_step(batch)
+
+    def validation_epoch_end(self, outs):
+        val_loss = 0.0
+        for out in outs:
+            val_loss += out.item()
+        self.logger.experiment.add_scalar('val_loss', val_loss / len(outs), self.current_epoch)
+        self.log_network_image(self.val_progress_batch, 'val_results')
 
 
 def train_main(args):
@@ -289,16 +313,16 @@ def train_main(args):
         print(f'provided dataset {dataset_path} not found')
         return
     train_dataset = ConnectivityDataset(dataset_path, train=True)
-    test_dataset = ConnectivityDataset(dataset_path, train=False)
-    trainloader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=cpus)
-    testloader = DataLoader(test_dataset, batch_size=args.batch_size, num_workers=cpus)
+    val_dataset = ConnectivityDataset(dataset_path, train=False)
+    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=cpus)
+    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=cpus)
 
     # training params
 
     beta = 1.0
     z_dim = 16
-    kld_weight = 1.0 / len(trainloader)
-    log_step = ceil(len(trainloader)/100) # log averaged loss ~100 times per epoch
+    kld_weight = 1.0 / len(train_dataloader)
+    log_step = ceil(len(train_dataloader)/100) # log averaged loss ~100 times per epoch
 
     # load model, if provided
 
@@ -316,7 +340,7 @@ def train_main(args):
 
     logger = pl_loggers.TensorBoardLogger('runs/', name='')
     trainer = pl.Trainer(logger=logger, max_epochs=args.epochs, weights_summary='full', gpus=gpus)
-    trainer.fit(model, trainloader)
+    trainer.fit(model, train_dataloader, val_dataloader)
 
 
 if __name__ == '__main__':
