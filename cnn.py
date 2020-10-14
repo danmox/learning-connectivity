@@ -277,7 +277,7 @@ class BetaVAEModel(AEBase):
         return loss
 
 
-def main(args):
+def train_main(args):
 
     cpus = os.cpu_count()
     gpus = 1 if torch.cuda.is_available() else 0
@@ -321,11 +321,17 @@ def main(args):
 
 if __name__ == '__main__':
 
-    parser = argparse.ArgumentParser(description='train connectivity CNN')
-    parser.add_argument('dataset', type=str, help='dataset for training / testing')
-    parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train for')
-    parser.add_argument('--batch-size', type=int, default=4, help='batch size for training')
-    parser.add_argument('--model', type=str, help='checkpoint to load')
+    parser = argparse.ArgumentParser(description='utilities for train and testing a connectivity CNN')
+    subparsers = parser.add_subparsers(dest='command', required=True)
+
+    # train subparser
+    train_parser = subparsers.add_parser('train', help='train connectivity CNN model on provided dataset')
+    train_parser.add_argument('dataset', type=str, help='dataset for training')
+    train_parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train for')
+    train_parser.add_argument('--batch-size', type=int, default=4, help='batch size for training')
+    train_parser.add_argument('--model', type=str, help='checkpoint to load')
+
     args = parser.parse_args()
 
-    main(args)
+    if args.command == 'train':
+        train_main(args)
