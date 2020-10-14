@@ -182,7 +182,7 @@ def generate_hdf5_dataset(task_agents, samples, jobs):
     comm_range = 30         # maximum range of communication hardware
     img_res = 128           # pixels per side of a square image
     train_percent = 0.85    # samples total samples will be divided into training and testing sets
-    area_scale_factor = 1.0 # ratio of max area covered by N agents vs area of image for bbx
+    area_scale_factor = 0.5 # ratio of max area covered by N agents vs area of image for bbx
 
     kernel_std = img_res*0.05 # standard deviation of gaussian kernel marking node positions
     space_side_length = 2.0*ceil(adaptive_bbx(max_task_agents, comm_range, area_scale_factor).max()+kernel_std)
