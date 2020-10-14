@@ -11,7 +11,6 @@ import pytorch_lightning as pl
 from pytorch_lightning import loggers as pl_loggers
 from torch.autograd import Variable
 import matplotlib.pyplot as plt
-import matplotlib as mpl
 import numpy as np
 from pathlib import Path
 from datetime import datetime
@@ -278,39 +277,55 @@ class BetaVAEModel(AEBase):
         return loss
 
 
-if __name__ == '__main__':
+def main(args):
 
-    # argparsing
-
-    # TODO revise args
-    parser = argparse.ArgumentParser(description='train connectivity CNN')
-    parser.add_argument('dataset', type=str, help='dataset for training / testing')
-    parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train for')
-    parser.add_argument('--model', type=str, help='model to continue training')
-    parser.add_argument('--nolog', action='store_true', help='disable logging')
-    parser.add_argument('--noask', action='store_true',
-                        help='skip asking user to continue training beyond given number of epochs')
-    args = parser.parse_args()
+    cpus = os.cpu_count()
+    gpus = 1 if torch.cuda.is_available() else 0
 
     # load dataset
 
     dataset_path = Path(args.dataset)
     if not dataset_path.exists():
         print(f'provided dataset {dataset_path} not found')
-        exit(1)
+        return
     train_dataset = ConnectivityDataset(dataset_path, train=True)
     test_dataset = ConnectivityDataset(dataset_path, train=False)
+    trainloader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=cpus)
+    testloader = DataLoader(test_dataset, batch_size=args.batch_size, num_workers=cpus)
 
-    # TODO initialize model or load an existing one
+    # training params
+
+    beta = 1.0
+    z_dim = 16
+    kld_weight = 1.0 / len(trainloader)
+    log_step = ceil(len(trainloader)/100) # log averaged loss ~100 times per epoch
+
+    # load model, if provided
+
+    if args.model is not None:
+        model_path = Path(args.model)
+        if not model_path.exists():
+            print(f'provided model {model_path} not found')
+            return
+        model = BetaVAEModel.load_from_checkpoint(args.model, beta=beta, z_dim=z_dim,
+                                                  kld_weight=kld_weight, log_step=log_step)
+    else:
+        model = BetaVAEModel(beta=beta, z_dim=z_dim, kld_weight=kld_weight, log_step=log_step)
 
     # train network
 
-    cpus = os.cpu_count()
-    gpus = 1 if torch.cuda.is_available() else 0
-
-    trainloader = DataLoader(train_dataset, batch_size=4, num_workers=cpus)
-    model = BetaVAEModel(beta=1.0, z_dim=16, kld_weight=1.0/len(trainloader),
-                         log_step=ceil(len(trainloader)/100)) # log loss ~100 times per epoch
     logger = pl_loggers.TensorBoardLogger('runs/', name='')
     trainer = pl.Trainer(logger=logger, max_epochs=args.epochs, weights_summary='full', gpus=gpus)
     trainer.fit(model, trainloader)
+
+
+if __name__ == '__main__':
+
+    parser = argparse.ArgumentParser(description='train connectivity CNN')
+    parser.add_argument('dataset', type=str, help='dataset for training / testing')
+    parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train for')
+    parser.add_argument('--batch-size', type=int, default=4, help='batch size for training')
+    parser.add_argument('--model', type=str, help='checkpoint to load')
+    args = parser.parse_args()
+
+    main(args)
