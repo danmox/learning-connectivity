@@ -67,6 +67,10 @@ class AEBase(pl.LightningModule):
         self.loss_hist = 0.0
         self.log_it = 0
 
+        # keep track of the best validation models
+        self.val_loss_best = float('Inf')
+        self.best_model_path = None
+
     # log network output for a single batch
     def log_network_image(self, batch, name):
         x, y = batch
@@ -81,6 +85,10 @@ class AEBase(pl.LightningModule):
         grid = torch.clamp(make_grid(img_list, nrow=3, padding=20, pad_value=1), 0.0, 1.0)
         self.logger.experiment.add_image(name, grid, self.current_epoch)
 
+    def _ckpt_dir(self):
+        log_dir = Path(self.trainer.weights_save_path) / self.logger.save_dir
+        return log_dir / f'version_{self.logger.version}' / 'checkpoints'
+
     # provide visual feedback of the learning progress after every epoch
     def training_epoch_end(self, outs):
         torch.set_grad_enabled(False)
@@ -90,6 +98,23 @@ class AEBase(pl.LightningModule):
 
         torch.set_grad_enabled(True)
         self.train()
+
+    def validation_epoch_end(self, outs):
+        val_loss = np.mean(np.asarray([o.item() for o in outs]))
+
+        # save checkpoint of best performing model
+        if val_loss < self.val_loss_best:
+            self.val_loss_best = val_loss
+
+            if self.best_model_path is not None:
+                self.best_model_path.unlink(missing_ok=True)
+
+            filename = self._ckpt_dir() / f'val_loss_{val_loss:.4f}_epoch_{self.current_epoch}.ckpt'
+            self.trainer.save_checkpoint(filename, weights_only=True)
+            self.best_model_path = filename
+
+        self.logger.experiment.add_scalar('val_loss', val_loss, self.current_epoch)
+        self.log_network_image(self.val_progress_batch, 'val_results')
 
 
 class UAEModel(AEBase):
@@ -261,22 +286,17 @@ class BetaVAEModel(AEBase):
         optimizer = optim.Adam(self.parameters(), lr=1e-4)
         return optimizer
 
-    def shared_step(self, batch):
+    def training_step(self, batch, batch_idx):
+        # set aside some data to show learning progress on training data
+        if self.train_progress_batch is None:
+            self.train_progress_batch = batch
+
         x, y = batch
         y_hat, mu, logvar = self(x)
 
         recon_loss = F.mse_loss(y_hat, y)
         kld_loss = torch.mean(-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1), dim=0)
         loss = recon_loss + self.beta * self.kld_weight * kld_loss
-
-        return loss
-
-    def training_step(self, batch, batch_idx):
-        # set aside some data to show learning progress on training data
-        if self.train_progress_batch is None:
-            self.train_progress_batch = batch
-
-        loss = self.shared_step(batch)
 
         self.loss_hist += loss.item()
         if batch_idx != 0 and batch_idx % self.log_step == 0:
@@ -291,14 +311,10 @@ class BetaVAEModel(AEBase):
         if self.val_progress_batch is None:
             self.val_progress_batch = batch
 
-        return self.shared_step(batch)
-
-    def validation_epoch_end(self, outs):
-        val_loss = 0.0
-        for out in outs:
-            val_loss += out.item()
-        self.logger.experiment.add_scalar('val_loss', val_loss / len(outs), self.current_epoch)
-        self.log_network_image(self.val_progress_batch, 'val_results')
+        x, y = batch
+        y_hat, _, _ = self(x)
+        loss = F.mse_loss(y_hat, y)
+        return loss
 
 
 def train_main(args):
