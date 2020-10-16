@@ -28,26 +28,47 @@ from feasibility import adaptive_bbx, min_feasible_sample
 class ConnectivityDataset(Dataset):
     """connectivity dataset"""
 
-    def __init__(self, file_path, train=True):
-        """assumes file_path exists"""
-        self.file_path = file_path
-        self.mode = 'train' if train else 'test'
-        self.dataset = None
+    def __init__(self, paths, train=True):
+        # paths can be some collection of hdf5 files or paths containing hdf5
+        # files
+        if not isinstance(paths, list):
+            paths = [paths]
+        paths = [Path(f) for f in paths]
 
-        with h5py.File(file_path, 'r') as f:
-            self.dataset_len = f[self.mode]['connectivity'].shape[0]
+        # build unique list of hdf5 files
+        self.hdf5_files = set()
+        for item in paths:
+            if item.is_dir():
+                self.hdf5_files.update(item.glob('*.hdf5'))
+            else:
+                self.hdf5_files.add(item)
+        assert len(self.hdf5_files) > 0
+
+        self.mode = 'train' if train else 'test'
+        self.datasets = None
+
+        # compute dataset splits for multi-array indexing
+        dataset_lens = []
+        for hdf5_file in self.hdf5_files:
+            with h5py.File(hdf5_file, 'r') as f:
+                dataset_lens.append(f[self.mode]['connectivity'].shape[0])
+        self.splits = np.hstack(([0], np.cumsum(dataset_lens)))
 
     def __getitem__(self, idx):
         # in order to use the multiprocessing capabilities provided by pytorch,
         # the hdf5 file must be loaded after __init__ since opened hdf5 files
         # are not pickleable:
         # https://discuss.pytorch.org/t/dataloader-when-num-worker-0-there-is-bug/25643/16
-        if self.dataset is None:
-            self.dataset = h5py.File(self.file_path, 'r')[self.mode]
+        if self.datasets is None:
+            self.datasets = [h5py.File(f, 'r')[self.mode] for f in self.hdf5_files]
+
+        # determine the dataset and sample to draw
+        dataset_idx = next(i for i in range(len(self.splits)) if self.splits[i] > idx) - 1
+        sample_idx = idx - self.splits[dataset_idx]
 
         # rescale: [0,255] -> [0,1] and reshape: (X,X) -> (1, X, X)
-        x = np.expand_dims(self.dataset['task_img'][idx,...] / 255.0, axis=0)
-        y = np.expand_dims(self.dataset['comm_img'][idx,...] / 255.0, axis=0)
+        x = np.expand_dims(self.datasets[dataset_idx]['task_img'][sample_idx,...] / 255.0, axis=0)
+        y = np.expand_dims(self.datasets[dataset_idx]['comm_img'][sample_idx,...] / 255.0, axis=0)
 
         # convert to float tensor
         x = torch.from_numpy(x).float()
@@ -56,13 +77,11 @@ class ConnectivityDataset(Dataset):
         return (x, y)
 
     def __len__(self):
-        return self.dataset_len
+        return self.splits[-1]
 
 
 def pos_to_subs(res, pts):
-    """
-    assume origin is at (0,0) and x,y res is equal
-    """
+    # assumes origin is at (0,0) and x,y res is equal
     return np.floor(pts / res).astype(int)
 
 
@@ -91,7 +110,7 @@ def kernelized_config_img(config, params):
 
 
 def write_hdf5_image_data(params, filename, queue):
-    '''
+    """
     helper function for writing hdf5 image data in a multiprocessing scenario
 
     inputs:
@@ -109,7 +128,7 @@ def write_hdf5_image_data(params, filename, queue):
          - comm_config
          - comm_img
          - connectivity
-    '''
+    """
 
     # initialize hdf5 database structure
 
@@ -149,7 +168,7 @@ def write_hdf5_image_data(params, filename, queue):
 
 
 def generate_hdf5_image_data(params, sample_queue, writer_queue):
-    '''
+    """
     helper function for generating hdf5 training samples in a multiprocessing
     scenario
 
@@ -157,7 +176,7 @@ def generate_hdf5_image_data(params, sample_queue, writer_queue):
       params       - dict of parameters used to generate training data
       sample_queue - the queue of seed data to generate samples from
       writer_queue - the queue of data to be written to the hdf5 database
-    '''
+    """
 
     for d in iter(sample_queue.get, None):
         pad = params['max_comm_agents'] - d['comm_config'].shape[0]

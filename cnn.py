@@ -324,12 +324,8 @@ def train_main(args):
 
     # load dataset
 
-    dataset_path = Path(args.dataset)
-    if not dataset_path.exists():
-        print(f'provided dataset {dataset_path} not found')
-        return
-    train_dataset = ConnectivityDataset(dataset_path, train=True)
-    val_dataset = ConnectivityDataset(dataset_path, train=False)
+    train_dataset = ConnectivityDataset(args.dataset, train=True)
+    val_dataset = ConnectivityDataset(args.dataset, train=False)
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=cpus)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=cpus)
 
@@ -366,7 +362,7 @@ if __name__ == '__main__':
 
     # train subparser
     train_parser = subparsers.add_parser('train', help='train connectivity CNN model on provided dataset')
-    train_parser.add_argument('dataset', type=str, help='dataset for training')
+    train_parser.add_argument('dataset', type=str, help='dataset for training', nargs='+')
     train_parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train for')
     train_parser.add_argument('--batch-size', type=int, default=4, help='batch size for training')
     train_parser.add_argument('--model', type=str, help='checkpoint to load')
