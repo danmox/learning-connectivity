@@ -326,7 +326,8 @@ def train_main(args):
 
     train_dataset = ConnectivityDataset(args.dataset, train=True)
     val_dataset = ConnectivityDataset(args.dataset, train=False)
-    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=cpus)
+    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size,
+                                  shuffle=True, num_workers=cpus)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=cpus)
 
     # training params
