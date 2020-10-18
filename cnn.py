@@ -267,8 +267,8 @@ class BetaVAEModel(AEBase):
         # first 16 elements corresponding to the mean and the last 16 elements
         # corresponding to the log of the variance
         latent_distribution = self.encoder(x)
-        mu = latent_distribution[:, :16]
-        logvar = latent_distribution[:, 16:]
+        mu = latent_distribution[:, :self.z_dim]
+        logvar = latent_distribution[:, self.z_dim:]
 
         # generate the input to the decoder using the reparameterization trick
         std = logvar.div(2).exp()
