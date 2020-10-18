@@ -100,6 +100,15 @@ def console_width_str(msg):
 
 
 def kernelized_config_img(config, params):
+    """generate kernelized image from agents configuration
+
+    inputs:
+      config - Nx2 numpy array of agent positions
+      params - image parameters from cnn_image_parameters()
+
+    ourputs:
+      img - image with node positions marked with a gaussian kernel
+    """
     img = np.zeros(params['img_size'])
     for agent in config:
         dist = np.linalg.norm(params['xy'] - agent, axis=2)
