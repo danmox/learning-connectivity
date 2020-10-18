@@ -204,7 +204,7 @@ class BetaVAEModel(AEBase):
 
     """
 
-    def __init__(self, beta, z_dim, kld_weight, log_step=1):
+    def __init__(self, beta, z_dim, kld_weight=1.0, log_step=1):
         super().__init__(log_step)
 
         self.beta = beta
