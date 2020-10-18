@@ -194,32 +194,65 @@ def generate_hdf5_image_data(params, sample_queue, writer_queue):
         writer_queue.put(out_dict)
 
 
+def cnn_image_parameters():
+
+    p = {}
+    p['max_task_agents'] = 15 # the number of task agents the image is sized for
+    p['comm_range'] = 30      # maximum range of communication hardware
+    img_res = 128        # cnn images are img_res x img_res
+    p['img_size'] = (img_res, img_res)
+
+    # ratio of max area covered by N agents vs area of image for bbx; this controls
+    # the density of the sampled task agent configurations, with highter numbers
+    # leading to sparser configurations
+    p['area_scale_factor'] = 0.5
+    p['kernel_std'] = img_res * 0.05
+
+    # the pysical space the image represents is determined based on the desired
+    # density of the agents with some padding added to ensure that the kernel
+    # used to mark each agent is not cut off by the side of the image
+    img_bbx = adaptive_bbx(p['max_task_agents'], p['comm_range'], p['area_scale_factor'])
+    p['space_side_length'] = 2.0*ceil(img_bbx.max() + p['kernel_std'])
+    p['meters_per_pixel'] = p['space_side_length'] / img_res
+
+    # useful for painting the kernel on the image
+    px_range = np.arange(img_res)
+    ij = np.stack(np.meshgrid(px_range, px_range, indexing='ij'), axis=2)
+    p['xy'] = p['meters_per_pixel'] * (ij + 0.5) - p['space_side_length']/2.0
+
+    return p
+
+
 def generate_hdf5_dataset(task_agents, samples, jobs):
 
-    # generation params
-    max_task_agents = 15    # the maximum number of task agents to design the sample image for
-    comm_range = 30         # maximum range of communication hardware
-    img_res = 128           # pixels per side of a square image
-    train_percent = 0.85    # samples total samples will be divided into training and testing sets
-    area_scale_factor = 0.5 # ratio of max area covered by N agents vs area of image for bbx
+    params = cnn_image_parameters() # fixed image generation parameters
+    params['channel_model'] = PiecewisePathLossModel(print_values=False)
+    params['task_agents'] = task_agents # so that all necessary args are in params
 
-    kernel_std = img_res*0.05 # standard deviation of gaussian kernel marking node positions
-    space_side_length = 2.0*ceil(adaptive_bbx(max_task_agents, comm_range, area_scale_factor).max()+kernel_std)
-    sample_counts = np.round(samples*(np.asarray([0,1]) + train_percent*np.asarray([1,-1]))).astype(int)
-    sample_bbx = adaptive_bbx(task_agents, comm_range, area_scale_factor) # area within which to draw sample
+    train_samples = int(0.85 * samples)
+    params['sample_count'] = {'train': train_samples, 'test': samples - train_samples}
 
-    if task_agents > max_task_agents:
-        print(f'too many task agents ({task_agents}), parameters tuned for {max_task_agents}')
+    # focus samples within a subset of the entire image so that interesting
+    # configurations are generated (ones that differ significantly from the MST
+    # solution) TODO vary this within the dataset
+    sample_bbx = adaptive_bbx(task_agents, params['comm_range'], params['area_scale_factor'])
+
+    # since sample_bbx is a subset of the entire image, generated
+    # configurations for smaller numbers of task agents will only take up a
+    # small portion of the image centered on the center; while convolutions are
+    # shift invariant we want to ensure that all of the image is used during
+    # training. thus generated configurations are shifted around the image but
+    # constrainted to remain within this img_bbx
+    img_bbx = (params['space_side_length']/2.0 - params['kernel_std']) * np.asarray([-1,1,-1,1])
+
+    # an overestimate of the maximum number of task agents that might be
+    # deployed used for hdf5 data sizing, which must be fixed for all samples
+    # stored in the dataset
+    params['max_comm_agents'] = 3 * ceil((sample_bbx[1] - sample_bbx[0]) / params['comm_range'])
+
+    if task_agents > params['max_task_agents']:
+        print(f"too many task agents ({task_agents}): parameters tuned for {params['max_task_agents']}")
         return
-
-    # params to save to config file
-    params = {}
-    params['task_agents'] = task_agents
-    params['img_size'] = (img_res, img_res)
-    params['area_scale_factor'] = area_scale_factor
-    params['comm_range'] = comm_range
-    params['meters_per_pixel'] = space_side_length / img_res
-    params['kernel_std'] = kernel_std
 
     # generate descriptive filename
     # NOTE there is a risk of overwriting a database if this script is run more
@@ -228,21 +261,10 @@ def generate_hdf5_dataset(task_agents, samples, jobs):
     filename = Path(__file__).resolve().parent / 'data' / \
         f"connectivity_{samples}s_{task_agents}t_{timestamp}.hdf5"
 
-    # save param file
-    param_file_name = filename.with_suffix('.json')
-    with open(param_file_name, 'w') as f:
-        json.dump(params, f, indent=4, separators=(',', ': '))
-
-    # these params don't need to be saved to disk
-    params['sample_count'] = {mode: int(count) for count, mode in zip(sample_counts, ('train', 'test'))}
-    params['channel_model'] = PiecewisePathLossModel(print_values=False)
-    ij = np.stack(np.meshgrid(np.arange(img_res), np.arange(img_res), indexing='ij'), axis=2)
-    params['xy'] = params['meters_per_pixel'] * (ij + 0.5) - space_side_length/2.0
-    params['max_comm_agents'] = 3 * ceil((sample_bbx[1] - sample_bbx[0]) / comm_range)
-
     # print dataset info to console
-    print(f"using {img_res}x{img_res} images with {params['meters_per_pixel']} meters/pixel"
-          f" and {task_agents} task agents")
+    res = params['img_size'][0]
+    print(f"using {res}x{res} images with {params['meters_per_pixel']} meters/pixel "
+          f"and {task_agents} task agents")
 
     # configure multiprocessing and generate training data
     #
@@ -272,11 +294,10 @@ def generate_hdf5_dataset(task_agents, samples, jobs):
     # the desired behavior since we may be generating tens of thousands of
     # samples and might not want to load them into memory all at the same time
     print(f'generating {samples} samples using {num_processes} processes')
-    img_bbx = (space_side_length/2.0 - kernel_std) * np.asarray([-1,1,-1,1])
-    for count, mode in zip(sample_counts, ('train','test')):
+    for mode in ('train','test'):
         it = 0
-        while it < count:
-            x_task, x_comm = min_feasible_sample(task_agents, comm_range, sample_bbx)
+        while it < params['sample_count'][mode]:
+            x_task, x_comm = min_feasible_sample(task_agents, params['comm_range'], sample_bbx)
             if x_comm.shape[0] > params['max_comm_agents']: # NOTE fairly certain this is impossible
                 print(f'too many comm agents: {x_comm.tolist()}')
                 continue
@@ -309,12 +330,8 @@ def view_hdf5_dataset(dataset_file, samples):
         print(f'the dataset {dataset} was not found')
         return
 
-    params_file = dataset.with_suffix('.json')
-    if not params_file.exists():
-        print(f'the parameter file {str(params_file)} was not found')
-        return
-    with open(params_file, 'r') as f:
-        params = json.load(f)
+    # parameters related to the dataset
+    params = cnn_image_parameters()
 
     hdf5_file = h5py.File(dataset, mode='r')
 
