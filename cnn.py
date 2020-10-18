@@ -116,6 +116,22 @@ class AEBase(pl.LightningModule):
         self.logger.experiment.add_scalar('val_loss', val_loss, self.current_epoch)
         self.log_network_image(self.val_progress_batch, 'val_results')
 
+    def inference(self, x):
+        """perform inference on model from numpy kernelized config image
+
+        inputs:
+          x - a numpy image generated from kernelized_config_img
+
+        outputs:
+          y_hat - a numpy image in the same format as x
+        """
+        self.eval()
+        x = torch.from_numpy(np.expand_dims(x / 255.0, axis=(0,1))).float()
+        with torch.no_grad():
+            y_hat, _, _ = self(x)
+        y_hat = torch.clamp(255*y_hat, 0, 255).cpu().detach().numpy().astype(np.uint8).squeeze()
+        return y_hat
+
 
 class UAEModel(AEBase):
     """undercomplete auto encoder for learning connectivity from images"""
