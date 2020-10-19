@@ -80,9 +80,14 @@ class ConnectivityDataset(Dataset):
         return self.splits[-1]
 
 
-def pos_to_subs(res, pts):
-    # assumes origin is at (0,0) and x,y res is equal
-    return np.floor(pts / res).astype(int)
+def pos_to_subs(res, img_size, pts):
+    """assumes center of image corresponds to (0,0) meters"""
+    return np.floor(pts / res).astype(int) + int(img_size)/2
+
+
+def subs_to_pos(res, img_size, subs):
+    """assumes center of image corresponds to (0,0) meters"""
+    return (subs - img_size/2.0) * res
 
 
 def human_readable_duration(dur):
@@ -229,13 +234,14 @@ def cnn_image_parameters():
     ij = np.stack(np.meshgrid(px_range, px_range, indexing='ij'), axis=2)
     p['xy'] = p['meters_per_pixel'] * (ij + 0.5) - p['space_side_length']/2.0
 
+    p['channel_model'] = PiecewisePathLossModel(print_values=False)
+
     return p
 
 
 def generate_hdf5_dataset(task_agents, samples, jobs):
 
     params = cnn_image_parameters() # fixed image generation parameters
-    params['channel_model'] = PiecewisePathLossModel(print_values=False)
     params['task_agents'] = task_agents # so that all necessary args are in params
 
     train_samples = int(0.85 * samples)
