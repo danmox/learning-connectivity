@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from socp.channel_model import PiecewiseChannel, ChannelModel, LinearChannel
+from socp.channel_model import PiecewisePathLossModel, PathLossModel, LinearModel
 from socp.rr_socp_tests import plot_config, numpy_to_ros
 from network_planner.connectivity_optimization import ConnectivityOpt
 from feasibility import adaptive_bbx, min_feasible_sample
@@ -24,7 +24,7 @@ def connectivity_distance_test():
     lambda2_points = 40
 
     x_task = circle_points(task_rad, 3)
-    cm = PiecewiseChannel(print_values=False)
+    cm = PiecewisePathLossModel(print_values=False)
 
     rad = np.linspace(0.1, 20.0, num=lambda2_points, endpoint=False)
     lambda2 = np.zeros_like(rad)
@@ -68,8 +68,8 @@ def conn_max_test():
     bbx = adaptive_bbx(task_agents, comm_range, 1.0)
     x_task, x_comm = min_feasible_sample(task_agents, comm_range, bbx)
 
-    cm = PiecewiseChannel(print_values=False)
-    # cm = ChannelModel(print_values=False)
+    cm = PiecewisePathLossModel(print_values=False)
+    # cm = PathLossModel(print_values=False)
     # cm = LinearChannel(max_range=comm_range)
     co = ConnectivityOpt(cm, x_task, x_comm)
 
