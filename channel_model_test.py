@@ -1,4 +1,4 @@
-from socp.channel_model import PiecewiseChannel, ChannelModel, LinearChannel
+from socp.channel_model import PiecewisePathLossModel, PathLossModel, LinearModel
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from math import pi
@@ -16,7 +16,7 @@ def circle_points(rad, num_points):
     return pts
 
 
-def derivative_test(cm=PiecewiseChannel()):
+def derivative_test(cm=PiecewisePathLossModel()):
 
     pts = 100
     xi = np.asarray([0, 0])
@@ -46,9 +46,9 @@ def derivative_test(cm=PiecewiseChannel()):
 
 
 def channel_plot():
-    pwcm = PiecewiseChannel(print_values=False)
-    lcm = LinearChannel(print_values=False)
-    cm = ChannelModel(print_values=False)
+    pwcm = PiecewisePathLossModel(print_values=False)
+    lcm = LinearModel(print_values=False)
+    cm = PathLossModel(print_values=False)
 
     x = np.linspace(0.1, 40.0, num=100)
     pw_rate = np.zeros(x.shape)
@@ -62,10 +62,12 @@ def channel_plot():
         cm_rate[i], _ = cm.predict_link(xi,xj)
 
     fig, ax = plt.subplots()
-    ax.plot(x, cm_rate, 'r', lw=2)
-    ax.plot(x, pw_rate, 'b--', lw=2)
-    ax.plot(x, lm_rate, 'g-.', lw=2)
+    ax.plot(x, cm_rate, 'r', lw=2, label=r'$\bar{R}$')
+    ax.plot(x, pw_rate, 'b--', lw=2, label=r'$R$')
+    # ax.plot(x, lm_rate, 'g-.', lw=2)
     ax.set_xlabel('distance (m)', fontsize='xx-large')
+    ax.legend(prop={'size': 16})
+    plt.savefig('results/channel_model.pdf')
     plt.show()
 
 
