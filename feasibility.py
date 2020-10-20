@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import numpy as np
 from socp.channel_model import PiecewisePathLossModel, PathLossModel, LinearModel
 from socp.rr_socp_tests import plot_config, numpy_to_ros
@@ -6,14 +7,15 @@ from network_planner.connectivity_optimization import ConnectivityOpt
 from scipy import spatial
 from scipy.sparse.csgraph import minimum_spanning_tree
 from math import ceil, floor
+import argparse
 
 
 def adaptive_bbx(agent_count, comm_range=30.0, scale_factor=0.5):
-    '''
+    """
     scale the bounding box within which agent configurations are randomly
     sampled so that the maximum area covered by the agents is a fixed multiple
     of the area of the bounding box
-    '''
+    """
     side_length = np.sqrt(np.pi * agent_count * scale_factor) * comm_range
     return side_length * np.asarray([-1, 1, -1, 1]) / 2.0
 
@@ -118,16 +120,28 @@ def min_feasible_sample(task_agents, comm_range, bbx):
     return x_task, x_comm
 
 
-def feasibility_test():
+def feasibility_test(args):
 
-    task_agents = np.random.randint(3, 10)
-    comm_range = 30  # meters
+    img_bbx = 160/2 * np.asarray([-1, 1, -1, 1])
+    comm_range = 30
 
-    bbx = adaptive_bbx(task_agents, comm_range, 1.0)
-    x_task, x_comm = min_feasible_sample(task_agents, comm_range, bbx)
+    task_agents = np.random.randint(3,10) if args.task_agents is None else args.task_agents
+    scale_factor = 1.0 if args.scale_factor is None else args.scale_factor
+    comm_range = 30
 
-    plot_config(np.vstack((x_task, x_comm)), task_ids=range(task_agents))
+    sample_bbx = adaptive_bbx(task_agents, comm_range, scale_factor)
+    print(sample_bbx)
+    x_task, x_comm = min_feasible_sample(task_agents, comm_range, sample_bbx)
+
+    plot_config(np.vstack((x_task, x_comm)), task_ids=range(task_agents), bbx=img_bbx)
 
 
 if __name__ == '__main__':
-    feasibility_test()
+    parser = argparse.ArgumentParser(description='feasibility tests')
+    parser.add_argument('--scale-factor', type=float, help='ratio of area covered by agents to image area')
+    parser.add_argument('--task-agents', type=int, help='number of task agent locations to sample')
+    p = parser.parse_args()
+
+    mpl.rcParams['figure.dpi'] = 150
+
+    feasibility_test(p)
