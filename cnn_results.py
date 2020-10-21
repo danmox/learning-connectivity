@@ -10,6 +10,9 @@ import numpy as np
 from skimage.feature import blob_dog, blob_log, blob_doh
 from network_planner.connectivity_optimization import ConnectivityOpt as ConnOpt
 from feasibility import connect_graph
+import torch
+from hdf5_dataset_utils import ConnectivityDataset
+import h5py
 
 
 def threshold(img, val):
@@ -75,12 +78,75 @@ def line_test(args):
         plt.show()
 
 
+def worst_test(args):
+
+    model_file = Path(args.model)
+    if not model_file.exists():
+        print(f'provided model {model_file} not found')
+        return
+    model = BetaVAEModel.load_from_checkpoint(args.model, beta=1.0, z_dim=16)
+    model.eval()
+
+    dataset_file = Path(args.dataset)
+    if not dataset_file.exists():
+        print(f'provided dataset {dataset_file} not found')
+        return
+    dataset = ConnectivityDataset(dataset_file, train=False)
+
+    worst_loss = 0.0
+    with torch.no_grad():
+        print(f'looping through {len(dataset)} test samples in {dataset_file}')
+        for i in range(len(dataset)):
+            print(f'\rprocessing sample {i+1} of {len(dataset)}\r', end="")
+            batch = [torch.unsqueeze(ten, 0) for ten in dataset[i]]
+            loss = model.validation_step(batch, None)
+            if loss > worst_loss:
+                worst_idx = i
+                worst_loss = loss
+
+    hdf5_file = h5py.File(dataset_file, mode='r')
+    input_image = hdf5_file['test']['task_img'][worst_idx,...]
+    output_image = hdf5_file['test']['comm_img'][worst_idx,...]
+    model_image = model.inference(input_image)
+
+    print(f'worst sample is {worst_idx}{20*" "}')
+    ax = plt.subplot(1,3,1)
+    ax.imshow(input_image)
+    ax.get_xaxis().set_visible(False)
+    ax.get_yaxis().set_visible(False)
+    ax.set_title('input')
+    ax = plt.subplot(1,3,2)
+    ax.imshow(output_image)
+    ax.get_xaxis().set_visible(False)
+    ax.get_yaxis().set_visible(False)
+    ax.set_title('target')
+    ax = plt.subplot(1,3,3)
+    ax.imshow(model_image)
+    ax.get_xaxis().set_visible(False)
+    ax.get_yaxis().set_visible(False)
+    ax.set_title('output')
+    plt.tight_layout()
+    plt.show()
+
+    hdf5_file.close()
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='CNN network tests')
-    parser.add_argument('model', type=str, help='model to test')
-    parser.add_argument('--blobs', action='store_true', help='extract blobs from output image')
+    subparsers = parser.add_subparsers(dest='command', required=True)
+
+    line_parser = subparsers.add_parser('line', help='run line test on provided model')
+    line_parser.add_argument('model', type=str, help='model to test')
+    line_parser.add_argument('--blobs', action='store_true', help='extract blobs from output image')
+
+    worst_parser = subparsers.add_parser('worst', help='show examples where the provided model performs the worst on the given dataset')
+    worst_parser.add_argument('model', type=str, help='model to test')
+    worst_parser.add_argument('dataset', type=str, help='test dataset')
 
     mpl.rcParams['figure.dpi'] = 150
 
     args = parser.parse_args()
-    line_test(args)
+    if args.command == 'line':
+        line_test(args)
+    elif args.command == 'worst':
+        worst_test(args)
