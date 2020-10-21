@@ -54,26 +54,31 @@ def line_test(args):
 
     start_config = np.asarray([[0, 20], [0, -20]])
     step = 2*np.asarray([[0, 1],[0, -1]])
-    for i in [3, 5, 8, 11, 13, 16, 19]:
+    for i in [1, 3, 5, 8, 11, 13, 16, 19]:
         task_config = start_config + i*step
         img = kernelized_config_img(task_config, params)
         out = model.inference(img)
 
         img_conn = connectivity_from_image(task_config, out, params)
-        opt_conn, opt_comm_config = connectivity_from_config(task_config, params)
-        opt_comm_subs = pos_to_subs(params['meters_per_pixel'], params['img_size'][0], opt_comm_config)
+        connectivity, comm_config = connectivity_from_config(task_config, params)
+        comm_subs = pos_to_subs(params['meters_per_pixel'], params['img_size'][0], comm_config)
 
         fig, axes = plt.subplots(1, 2, sharex=True, sharey=True)
         ax = axes.ravel()
         ax[0].imshow(img)
+        ax[0].axis('off')
         ax[1].imshow(out)
+        ax[1].axis('off')
         if args.blobs:
             for blob in compute_blobs(out):
                 y, x, r = blob
-                c = plt.Circle((x, y), r, color='r', linewidth=2, fill=False)
-                ax[1].add_patch(c)
-            ax[1].plot(opt_comm_subs[:,1], opt_comm_subs[:,0], 'rx', ms=14, markeredgewidth=2)
-        fig.suptitle(f'img conn. = {img_conn:.4f}, opt conn. = {opt_conn:.4f}', fontsize=16)
+                # c = plt.Circle((x, y), r, color='r', linewidth=2, fill=False, label='CNN')
+                # ax[1].add_patch(c)
+                c, = ax[1].plot(x, y, 'ro', ms=18, markeredgewidth=2, markerfacecolor="None")
+            x, = ax[1].plot(comm_subs[:,1], comm_subs[:,0], 'rx', ms=14, markeredgewidth=2)
+        ax[1].legend((c, x), ('CNN', 'opt.'), prop={'size': 14})
+        fig.suptitle(f'img conn. = {img_conn:.4f}, opt conn. = {connectivity:.4f}',
+                     fontsize=16, y=0.85)
         plt.tight_layout()
         plt.show()
 
