@@ -17,6 +17,7 @@ from datetime import datetime
 import argparse
 import os
 from math import ceil
+import h5py
 
 
 def count_parameters(model):
@@ -372,6 +373,70 @@ def train_main(args):
     trainer.fit(model, train_dataloader, val_dataloader)
 
 
+def eval_main(args):
+
+    model_file = Path(args.model)
+    if not model_file.exists():
+        print(f'provided model {model_file} not found')
+        return
+    model = BetaVAEModel.load_from_checkpoint(args.model, beta=1.0, z_dim=16)
+
+    dataset_file = Path(args.dataset)
+    if not dataset_file.exists():
+        print(f'provided dataset {dataset_file} not found')
+        return
+    hdf5_file = h5py.File(dataset_file, mode='r')
+    dataset_len = hdf5_file['test']['task_img'].shape[0]
+
+    if args.sample is None:
+        idx = np.random.randint(dataset_len)
+    elif args.sample > dataset_len:
+        print(f'provided sample index {args.sample} out of range of dataset with length {dataset_len}')
+        return
+    else:
+        idx = args.sample
+
+    input_image = hdf5_file['test']['task_img'][idx,...]
+    output_image = hdf5_file['test']['comm_img'][idx,...]
+    model_image = model.inference(input_image)
+
+    if not args.save:
+        print(f'showing sample {idx} from {dataset_file.name}')
+        ax = plt.subplot(1,3,1)
+        ax.imshow(input_image)
+        ax.get_xaxis().set_visible(False)
+        ax.get_yaxis().set_visible(False)
+        ax.set_title('input')
+        ax = plt.subplot(1,3,2)
+        ax.imshow(output_image)
+        ax.get_xaxis().set_visible(False)
+        ax.get_yaxis().set_visible(False)
+        ax.set_title('target')
+        ax = plt.subplot(1,3,3)
+        ax.imshow(model_image)
+        ax.get_xaxis().set_visible(False)
+        ax.get_yaxis().set_visible(False)
+        ax.set_title('output')
+        plt.tight_layout()
+        plt.show()
+
+    if args.save:
+        imgs = (input_image, output_image, model_image)
+        names = ('input', 'output', 'model')
+        for img, name in zip(imgs, names):
+            fig = plt.figure()
+            fig.set_size_inches((4,4))
+            ax = plt.Axes(fig, [0., 0., 1., 1.])
+            ax.set_axis_off()
+            fig.add_axes(ax)
+            ax.imshow(img, aspect='equal')
+            filename = '_'.join((str(idx), name, dataset_file.stem)) + '.png'
+            plt.savefig(filename, dpi=150)
+            print(f'saved image {filename}')
+
+    hdf5_file.close()
+
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='utilities for train and testing a connectivity CNN')
@@ -384,7 +449,16 @@ if __name__ == '__main__':
     train_parser.add_argument('--batch-size', type=int, default=4, help='batch size for training')
     train_parser.add_argument('--model', type=str, help='checkpoint to load')
 
+    # inference subparser
+    eval_parser = subparsers.add_parser('eval', help='run inference on samples(s)')
+    eval_parser.add_argument('model', type=str, help='model to use for inference')
+    eval_parser.add_argument('dataset', type=str, help='dataset to draw samples from')
+    eval_parser.add_argument('--sample', type=int, help='sample to perform inference on')
+    eval_parser.add_argument('--save', action='store_true', help='save intput, output and target images')
+
     args = parser.parse_args()
 
     if args.command == 'train':
         train_main(args)
+    if args.command == 'eval':
+        eval_main(args)
