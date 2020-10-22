@@ -133,7 +133,12 @@ def feasibility_test(args):
     print(sample_bbx)
     x_task, x_comm = min_feasible_sample(task_agents, comm_range, sample_bbx)
 
-    plot_config(np.vstack((x_task, x_comm)), task_ids=range(task_agents), bbx=img_bbx)
+    fig, ax = plt.subplots()
+    plot_config(np.vstack((x_task, x_comm)), task_ids=range(task_agents), bbx=img_bbx,
+                ax=ax, show=False)
+    ax.add_patch(mpl.patches.Rectangle(sample_bbx[::2], 2*abs(sample_bbx[0]), 2*abs(sample_bbx[1]),
+                                       fc='none', ec='g', lw=2))
+    plt.show()
 
 
 if __name__ == '__main__':
