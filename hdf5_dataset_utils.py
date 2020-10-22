@@ -210,30 +210,27 @@ def generate_hdf5_image_data(params, sample_queue, writer_queue):
 
 def cnn_image_parameters():
 
+    img_res = 128
+
     p = {}
-    p['max_task_agents'] = 15 # the number of task agents the image is sized for
-    p['comm_range'] = 30      # maximum range of communication hardware
-    img_res = 128        # cnn images are img_res x img_res
-    p['img_size'] = (img_res, img_res)
+    p['comm_range'] = 30               # maximum range of communication hardware
+    p['img_size'] = (img_res, img_res) # square images used with CNN
+    p['kernel_std'] = img_res * 0.05   # size of Gaussian kernel used to mark agent locations
+    p['meters_per_pixel'] = 1.25       # metric distance of each pixel in the image
+    p['min_area_factor'] = 0.4         # minimum density of agents to sample
 
-    # ratio of max area covered by N agents vs area of image for bbx; this controls
-    # the density of the sampled task agent configurations, with highter numbers
-    # leading to sparser configurations
-    p['area_scale_factor'] = 0.5
-    p['kernel_std'] = img_res * 0.05
+    # bounding box within which all agent positions must lie; this prevents
+    # agents being placed near the edge of the image where their Gaussian
+    # kernel would get cut off
+    p['img_side_len'] = img_res * p['meters_per_pixel'] # for convenience
+    p['max_agent_bbx'] = (p['img_side_len']/2.0 - p['kernel_std']) * np.asarray([-1,1,-1,1])
 
-    # the pysical space the image represents is determined based on the desired
-    # density of the agents with some padding added to ensure that the kernel
-    # used to mark each agent is not cut off by the side of the image
-    img_bbx = adaptive_bbx(p['max_task_agents'], p['comm_range'], p['area_scale_factor'])
-    p['space_side_length'] = 2.0*ceil(img_bbx.max() + p['kernel_std'])
-    p['meters_per_pixel'] = p['space_side_length'] / img_res
+    # the xy location of the center of each pixel
+    # NOTE the metric location (0,0) is chosen to be the center of the image
+    ij = np.stack(np.meshgrid(np.arange(img_res), np.arange(img_res), indexing='ij'), axis=2)
+    p['xy'] = p['meters_per_pixel'] * (ij + 0.5) - p['img_side_len']/2.0
 
-    # useful for painting the kernel on the image
-    px_range = np.arange(img_res)
-    ij = np.stack(np.meshgrid(px_range, px_range, indexing='ij'), axis=2)
-    p['xy'] = p['meters_per_pixel'] * (ij + 0.5) - p['space_side_length']/2.0
-
+    # TODO set cutoff distance from p['comm_range']
     p['channel_model'] = PiecewisePathLossModel(print_values=False)
 
     return p
@@ -242,31 +239,24 @@ def cnn_image_parameters():
 def generate_hdf5_dataset(task_agents, samples, jobs):
 
     params = cnn_image_parameters() # fixed image generation parameters
-    params['task_agents'] = task_agents # so that all necessary args are in params
+    params['task_agents'] = task_agents # so that params can be passed around with all necessary args
 
     train_samples = int(0.85 * samples)
     params['sample_count'] = {'train': train_samples, 'test': samples - train_samples}
 
-    # focus samples within a subset of the entire image so that interesting
-    # configurations are generated (ones that differ significantly from the MST
-    # solution) TODO vary this within the dataset
-    sample_bbx = adaptive_bbx(task_agents, params['comm_range'], params['area_scale_factor'])
-
-    # since sample_bbx is a subset of the entire image, generated
-    # configurations for smaller numbers of task agents will only take up a
-    # small portion of the image centered on the center; while convolutions are
-    # shift invariant we want to ensure that all of the image is used during
-    # training. thus generated configurations are shifted around the image but
-    # constrainted to remain within this img_bbx
-    img_bbx = (params['space_side_length']/2.0 - params['kernel_std']) * np.asarray([-1,1,-1,1])
-
     # an overestimate of the maximum number of task agents that might be
-    # deployed used for hdf5 data sizing, which must be fixed for all samples
+    # deployed needed for hdf5 data sizing, which must be fixed for all samples
     # stored in the dataset
-    params['max_comm_agents'] = 3 * ceil((sample_bbx[1] - sample_bbx[0]) / params['comm_range'])
+    params['max_comm_agents'] = 3 * ceil(params['img_side_len'] / params['comm_range'])
 
-    if task_agents > params['max_task_agents']:
-        print(f"too many task agents ({task_agents}): parameters tuned for {params['max_task_agents']}")
+    # ensure given number of task agents fit in the image at the minimum
+    # desired density to prevent crowding
+    min_agent_bbx = adaptive_bbx(task_agents, params['comm_range'], params['min_area_factor'])
+    if min_agent_bbx[0] < params['max_agent_bbx'][0]:
+        print(f"{task_agents} task agents cannot fit in image with min_area_factor "
+              f"{params['min_area_factor']}")
+        print(f"required bbx: ({', '.join(map(str, min_agent_bbx))})")
+        print(f"agent bbx:    ({', '.join(map(str, params['max_agent_bbx']))})")
         return
 
     # generate descriptive filename
@@ -309,22 +299,19 @@ def generate_hdf5_dataset(task_agents, samples, jobs):
     # the desired behavior since we may be generating tens of thousands of
     # samples and might not want to load them into memory all at the same time
     print(f'generating {samples} samples using {num_processes} processes')
+    rng = np.random.default_rng()
     for mode in ('train','test'):
         it = 0
         while it < params['sample_count'][mode]:
+            alpha = rng.random() # [0, 1)
+            sample_bbx = alpha * params['max_agent_bbx'] + (1-alpha) * min_agent_bbx
+
             x_task, x_comm = min_feasible_sample(task_agents, params['comm_range'], sample_bbx)
             if x_comm.shape[0] > params['max_comm_agents']: # NOTE fairly certain this is impossible
                 print(f'too many comm agents: {x_comm.tolist()}')
                 continue
 
-            # randomly shift the configuration so that all parts of the image
-            # are used for all team sizes
-            x = np.vstack((x_task, x_comm))
-            x_bbx = np.asarray([x[:,0].min(), x[:,0].max(), x[:,1].min(), x[:,1].max()])
-            shift_bbx = img_bbx - x_bbx
-            shift = np.random.random((1,2)) * (shift_bbx[1::2] - shift_bbx[0::2]) + shift_bbx[0::2]
-
-            sample_queue.put({'mode': mode, 'task_config': x_task+shift, 'comm_config': x_comm+shift})
+            sample_queue.put({'mode': mode, 'task_config': x_task, 'comm_config': x_comm})
             it += 1
 
     # each worker process exits once it receives a None
