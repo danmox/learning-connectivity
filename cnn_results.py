@@ -7,7 +7,8 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import argparse
 import numpy as np
-from skimage.feature import blob_dog, blob_log, blob_doh
+from skimage.filters.thresholding import threshold_local
+from skimage.filters import gaussian
 from network_planner.connectivity_optimization import ConnectivityOpt as ConnOpt
 from feasibility import connect_graph
 import torch
@@ -15,24 +16,20 @@ from hdf5_dataset_utils import ConnectivityDataset
 import h5py
 
 
-def threshold(img, val):
-    tmp = np.copy(img)
-    tmp[tmp < val] = 0
-    return tmp
-
-
-def compute_blobs(img):
-    blobs = blob_log(threshold(img, 40), max_sigma=7, min_sigma=5, num_sigma=10, threshold=.2)
-    blobs[:, 2] = blobs[:, 2] * sqrt(2)
-    return blobs
+def compute_peaks(image):
+    blurred_image = gaussian(image, sigma=2)
+    thresh_mask = threshold_local(blurred_image, 15, method='generic', param=lambda a : max(a.max(), 0.01))
+    peaks = np.argwhere(blurred_image >= thresh_mask)
+    return peaks
 
 
 def connectivity_from_image(task_config, out_img, p):
-    blobs = blob_log(threshold(out_img, 40), max_sigma=7, min_sigma=5, num_sigma=10, threshold=.2)
-    comm_config = np.zeros((blobs.shape[0], 2))
-    for i, blob in enumerate(blobs):
-        comm_config[i,:] = subs_to_pos(p['meters_per_pixel'], p['img_size'][0], blob[:2])
-    return ConnOpt.connectivity(p['channel_model'], task_config, comm_config)
+    peaks = compute_peaks(out_img)
+    comm_config = np.zeros_like(peaks)
+    for i, peak in enumerate(peaks):
+        comm_config[i,:] = subs_to_pos(p['meters_per_pixel'], p['img_size'][0], peak)
+    connectivity = ConnOpt.connectivity(p['channel_model'], task_config, comm_config)
+    return connectivity, comm_config
 
 
 def connectivity_from_config(task_config, p):
@@ -40,6 +37,37 @@ def connectivity_from_config(task_config, p):
     opt = ConnOpt(p['channel_model'], task_config, comm_config)
     conn = opt.maximize_connectivity()
     return conn, opt.get_comm_config()
+
+
+def segment_test(args):
+
+    model_file = Path(args.model)
+    if not model_file.exists():
+        print(f'provided model {model_file} not found')
+        return
+    model = BetaVAEModel.load_from_checkpoint(args.model, beta=1.0, z_dim=16)
+    model.eval()
+
+    dataset_file = Path(args.dataset)
+    if not dataset_file.exists():
+        print(f'provided dataset {dataset_file} not found')
+        return
+    hdf5_file = h5py.File(dataset_file, mode='r')
+
+    input_image = hdf5_file['test']['task_img'][args.sample,...]
+    output_image = hdf5_file['test']['comm_img'][args.sample,...]
+    model_image = model.inference(input_image)
+
+    blurred_image = gaussian(model_image, sigma=2)
+    thresh_mask = threshold_local(blurred_image, 15, method='generic', param=lambda a : max(a.max(), 0.01))
+    peaks_image = blurred_image >= thresh_mask
+    peaks = np.argwhere(peaks_image)
+
+    fig, ax = plt.subplots()
+    ax.imshow(model_image) #, cmap='gray')
+    ax.axis('off')
+    ax.plot(peaks[:,1], peaks[:,0], 'ro')
+    plt.show()
 
 
 def line_test(args):
@@ -59,9 +87,10 @@ def line_test(args):
         img = kernelized_config_img(task_config, params)
         out = model.inference(img)
 
-        img_conn = connectivity_from_image(task_config, out, params)
-        connectivity, comm_config = connectivity_from_config(task_config, params)
-        comm_subs = pos_to_subs(params['meters_per_pixel'], params['img_size'][0], comm_config)
+        cnn_conn, cnn_config = connectivity_from_image(task_config, out, params)
+        true_conn, true_config = connectivity_from_config(task_config, params)
+        true_subs = pos_to_subs(params['meters_per_pixel'], params['img_size'][0], true_config)
+        cnn_subs = pos_to_subs(params['meters_per_pixel'], params['img_size'][0], cnn_config)
 
         fig, axes = plt.subplots(1, 2, sharex=True, sharey=True)
         ax = axes.ravel()
@@ -69,16 +98,11 @@ def line_test(args):
         ax[0].axis('off')
         ax[1].imshow(out)
         ax[1].axis('off')
-        if args.blobs:
-            for blob in compute_blobs(out):
-                y, x, r = blob
-                # c = plt.Circle((x, y), r, color='r', linewidth=2, fill=False, label='CNN')
-                # ax[1].add_patch(c)
-                c, = ax[1].plot(x, y, 'ro', ms=18, markeredgewidth=2, markerfacecolor="None")
-            x, = ax[1].plot(comm_subs[:,1], comm_subs[:,0], 'rx', ms=14, markeredgewidth=2)
-        ax[1].legend((c, x), ('CNN', 'opt.'), prop={'size': 14})
-        fig.suptitle(f'img conn. = {img_conn:.4f}, opt conn. = {connectivity:.4f}',
+        ax[1].plot(cnn_subs[:,1], cnn_subs[:,0], 'ro', label='CNN')
+        ax[1].plot(true_subs[:,1], true_subs[:,0], 'bo', label='opt')
+        fig.suptitle(f'img conn. = {cnn_conn:.4f}, opt conn. = {true_conn:.4f}',
                      fontsize=16, y=0.85)
+        ax[1].legend()
         plt.tight_layout()
         plt.show()
 
@@ -142,11 +166,15 @@ if __name__ == '__main__':
 
     line_parser = subparsers.add_parser('line', help='run line test on provided model')
     line_parser.add_argument('model', type=str, help='model to test')
-    line_parser.add_argument('--blobs', action='store_true', help='extract blobs from output image')
 
     worst_parser = subparsers.add_parser('worst', help='show examples where the provided model performs the worst on the given dataset')
     worst_parser.add_argument('model', type=str, help='model to test')
     worst_parser.add_argument('dataset', type=str, help='test dataset')
+
+    seg_parser = subparsers.add_parser('segment', help='test out segmentation method for extracting distribution from image')
+    seg_parser.add_argument('dataset', type=str, help='test dataset')
+    seg_parser.add_argument('model', type=str, help='model')
+    seg_parser.add_argument('sample', type=int, help='sample to test')
 
     mpl.rcParams['figure.dpi'] = 150
 
@@ -155,3 +183,5 @@ if __name__ == '__main__':
         line_test(args)
     elif args.command == 'worst':
         worst_test(args)
+    elif args.command == 'segment':
+        segment_test(args)
