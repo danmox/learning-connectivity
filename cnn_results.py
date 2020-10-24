@@ -18,7 +18,7 @@ import h5py
 
 def compute_peaks(image):
     blurred_image = gaussian(image, sigma=2)
-    thresh_mask = threshold_local(blurred_image, 15, method='generic', param=lambda a : max(a.max(), 0.01))
+    thresh_mask = threshold_local(blurred_image, 11, method='generic', param=lambda a : max(a.max(), 0.01))
     peaks = np.argwhere(blurred_image >= thresh_mask)
     return peaks
 
