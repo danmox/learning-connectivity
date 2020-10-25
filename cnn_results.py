@@ -53,9 +53,18 @@ def segment_test(args):
         print(f'provided dataset {dataset_file} not found')
         return
     hdf5_file = h5py.File(dataset_file, mode='r')
+    dataset_len = hdf5_file['test']['task_img'].shape[0]
 
-    input_image = hdf5_file['test']['task_img'][args.sample,...]
-    output_image = hdf5_file['test']['comm_img'][args.sample,...]
+    if args.sample is None:
+        idx = np.random.randint(dataset_len)
+    elif args.sample > dataset_len:
+        print(f'provided sample index {args.sample} out of range of dataset with length {dataset_len}')
+        return
+    else:
+        idx = args.sample
+
+    input_image = hdf5_file['test']['task_img'][idx,...]
+    output_image = hdf5_file['test']['comm_img'][idx,...]
     model_image = model.inference(input_image)
 
     blurred_image = gaussian(model_image, sigma=2)
@@ -64,7 +73,7 @@ def segment_test(args):
     peaks = np.argwhere(peaks_image)
 
     fig, ax = plt.subplots()
-    ax.imshow(model_image) #, cmap='gray')
+    ax.imshow(np.maximum(model_image, input_image))
     ax.axis('off')
     ax.plot(peaks[:,1], peaks[:,0], 'ro')
     plt.show()
@@ -172,9 +181,9 @@ if __name__ == '__main__':
     worst_parser.add_argument('dataset', type=str, help='test dataset')
 
     seg_parser = subparsers.add_parser('segment', help='test out segmentation method for extracting distribution from image')
-    seg_parser.add_argument('dataset', type=str, help='test dataset')
     seg_parser.add_argument('model', type=str, help='model')
-    seg_parser.add_argument('sample', type=int, help='sample to test')
+    seg_parser.add_argument('dataset', type=str, help='test dataset')
+    seg_parser.add_argument('--sample', type=int, help='sample to test')
 
     mpl.rcParams['figure.dpi'] = 150
 
