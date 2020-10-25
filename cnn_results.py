@@ -181,6 +181,62 @@ def worst_test(args):
     hdf5_file.close()
 
 
+def connectivity_test(args):
+
+    model_file = Path(args.model)
+    if not model_file.exists():
+        print(f'provided model {model_file} not found')
+        return
+    model = BetaVAEModel.load_from_checkpoint(args.model, beta=1.0, z_dim=16)
+
+    dataset_file = Path(args.dataset)
+    if not dataset_file.exists():
+        print(f'provided dataset {dataset_file} not found')
+        return
+    hdf5_file = h5py.File(dataset_file, mode='r')
+    dataset_len = hdf5_file['test']['task_img'].shape[0]
+
+    if args.sample is None:
+        idx = np.random.randint(dataset_len)
+    elif args.sample > dataset_len:
+        print(f'provided sample index {args.sample} out of range of dataset with length {dataset_len}')
+        return
+    else:
+        idx = args.sample
+
+    input_image = hdf5_file['test']['task_img'][idx,...]
+    opt_conn = hdf5_file['test']['connectivity'][idx]
+    task_config = hdf5_file['test']['task_config'][idx,...]
+    comm_config = hdf5_file['test']['comm_config'][idx,...]
+    model_image = model.inference(input_image)
+
+    p = cnn_image_parameters()
+    img_extents = p['img_side_len'] / 2.0 * np.asarray([-1,1,1,-1])
+
+    cnn_conn, cnn_config = connectivity_from_image(task_config, model_image, p)
+
+    ax = plt.subplot()
+    ax.imshow(np.maximum(input_image, model_image), extent=img_extents)
+    ax.plot(task_config[:,1], task_config[:,0], 'ro', label='task')
+    ax.plot(comm_config[:,1], comm_config[:,0], 'rx', label='comm. opt.', ms=9, mew=3)
+    ax.plot(cnn_config[:,1], cnn_config[:,0], 'bx', label='comm. CNN', ms=9, mew=3)
+    ax.invert_yaxis()
+    ax.set_yticks(np.arange(-80, 80, 20))
+    ax.legend(loc='best', fontsize=14)
+    ax.set_title(f'{idx}: opt. = {opt_conn:.3f}, cnn = {cnn_conn:.3f}', fontsize=18)
+    ax.tick_params(axis='both', which='major', labelsize=16)
+
+    if not args.save:
+        print(f'showing sample {idx} from {dataset_file.name}')
+        plt.show()
+    else:
+        filename = str(idx) + '_' + dataset_file.stem + '.png'
+        plt.savefig(filename, dpi=150)
+        print(f'saved image {filename}')
+
+    hdf5_file.close()
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='CNN network tests')
     subparsers = parser.add_subparsers(dest='command', required=True)
@@ -198,6 +254,12 @@ if __name__ == '__main__':
     seg_parser.add_argument('dataset', type=str, help='test dataset')
     seg_parser.add_argument('--sample', type=int, help='sample to test')
 
+    conn_parser = subparsers.add_parser('connectivity', help='compute connectivity for a CNN output')
+    conn_parser.add_argument('model', type=str, help='model')
+    conn_parser.add_argument('dataset', type=str, help='test dataset')
+    conn_parser.add_argument('--sample', type=int, help='sample to test')
+    conn_parser.add_argument('--save', action='store_true')
+
     mpl.rcParams['figure.dpi'] = 150
 
     args = parser.parse_args()
@@ -207,3 +269,5 @@ if __name__ == '__main__':
         worst_test(args)
     elif args.command == 'segment':
         segment_test(args)
+    elif args.command == 'connectivity':
+        connectivity_test(args)
