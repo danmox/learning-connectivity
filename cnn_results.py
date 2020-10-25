@@ -91,29 +91,41 @@ def line_test(args):
 
     start_config = np.asarray([[0, 20], [0, -20]])
     step = 2*np.asarray([[0, 1],[0, -1]])
-    for i in [1, 3, 5, 8, 11, 13, 16, 19]:
+    for i in range(20):
         task_config = start_config + i*step
         img = kernelized_config_img(task_config, params)
         out = model.inference(img)
 
         cnn_conn, cnn_config = connectivity_from_image(task_config, out, params)
-        true_conn, true_config = connectivity_from_config(task_config, params)
-        true_subs = pos_to_subs(params['meters_per_pixel'], params['img_size'][0], true_config)
+        opt_conn, opt_config = connectivity_from_config(task_config, params)
+        opt_subs = pos_to_subs(params['meters_per_pixel'], params['img_size'][0], opt_config)
         cnn_subs = pos_to_subs(params['meters_per_pixel'], params['img_size'][0], cnn_config)
 
-        fig, axes = plt.subplots(1, 2, sharex=True, sharey=True)
-        ax = axes.ravel()
-        ax[0].imshow(img)
-        ax[0].axis('off')
-        ax[1].imshow(out)
-        ax[1].axis('off')
-        ax[1].plot(cnn_subs[:,1], cnn_subs[:,0], 'ro', label='CNN')
-        ax[1].plot(true_subs[:,1], true_subs[:,0], 'bo', label='opt')
-        fig.suptitle(f'img conn. = {cnn_conn:.4f}, opt conn. = {true_conn:.4f}',
-                     fontsize=16, y=0.85)
-        ax[1].legend()
+        p = cnn_image_parameters()
+        img_extents = p['img_side_len'] / 2.0 * np.asarray([-1,1,1,-1])
+
+        fig, ax = plt.subplots()
+
+        ax.imshow(np.maximum(out, img), extent=img_extents)
+        ax.plot(task_config[:,1], task_config[:,0], 'ro', label='task')
+        ax.plot(opt_config[:,1], opt_config[:,0], 'rx', label='comm. opt.', ms=9, mew=3)
+        ax.plot(cnn_config[:,1], cnn_config[:,0], 'bx', label='comm. CNN', ms=9, mew=3)
+
+        ax.invert_yaxis()
+        ax.set_yticks(np.arange(-80, 80, 20))
+        ax.tick_params(axis='both', which='major', labelsize=16)
+
+        ax.legend(loc='best', fontsize=14)
+        ax.set_title(f'opt. = {opt_conn:.3f}, cnn = {cnn_conn:.3f}', fontsize=18)
+
         plt.tight_layout()
-        plt.show()
+
+        if args.save:
+            filename = f'line_{i:02d}_{model_file.stem}.png'
+            plt.savefig(filename, dpi=150)
+            print(f'saved image {filename}')
+        else:
+            plt.show()
 
 
 def worst_test(args):
@@ -175,6 +187,7 @@ if __name__ == '__main__':
 
     line_parser = subparsers.add_parser('line', help='run line test on provided model')
     line_parser.add_argument('model', type=str, help='model to test')
+    line_parser.add_argument('--save', action='store_true')
 
     worst_parser = subparsers.add_parser('worst', help='show examples where the provided model performs the worst on the given dataset')
     worst_parser.add_argument('model', type=str, help='model to test')
