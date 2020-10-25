@@ -8,3 +8,4 @@ runs
 models
 __pycache__
 mobile_networks.pdf
+*.png
