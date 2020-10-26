@@ -263,6 +263,58 @@ def connectivity_test(args):
     hdf5_file.close()
 
 
+def stats_test(args):
+    model_file = Path(args.model)
+    if not model_file.exists():
+        print(f'provided model {model_file} not found')
+        return
+    model = BetaVAEModel.load_from_checkpoint(args.model, beta=1.0, z_dim=16)
+    model.eval()
+
+    dataset_file = Path(args.dataset)
+    if not dataset_file.exists():
+        print(f'provided dataset {dataset_file} not found')
+        return
+    hdf5_file = h5py.File(dataset_file, mode='r')
+
+    mode = 'train' if args.train else 'test'
+    dataset_len = hdf5_file[mode]['task_img'].shape[0]
+
+    opt_connectivity = hdf5_file[mode]['connectivity'][:]
+    cnn_connectivity = np.zeros_like(opt_connectivity)
+
+    p = cnn_image_parameters()
+
+    for i in range(dataset_len):
+        print(f'\rprocessing sample {i+1} of {dataset_len}\r', end="")
+        model_image = model.inference(hdf5_file[mode]['task_img'][i,...])
+        task_config = hdf5_file[mode]['task_config'][i,...]
+        cnn_connectivity[i], _ = connectivity_from_image(task_config, model_image, p)
+    print(f'processed {dataset_len} test samples in {dataset_file.name}')
+
+    eps = 1e-10
+    opt_feasible = opt_connectivity > eps
+    cnn_feasible = cnn_connectivity > eps
+    both_feasible = opt_feasible & cnn_feasible
+
+    # sometimes the CNN performs better
+    better = np.where(cnn_connectivity > opt_connectivity)[0]
+    better = better[cnn_feasible[better]]
+
+    absolute_error = opt_connectivity[both_feasible] - cnn_connectivity[both_feasible]
+    percent_error = absolute_error / opt_connectivity[both_feasible]
+
+    print(f'{np.sum(opt_feasible)}/{dataset_len} feasible with optimization')
+    print(f'{np.sum(cnn_feasible)}/{dataset_len} feasible with CNN')
+    print(f'{np.sum(cnn_feasible & ~opt_feasible)} cases where only the CNN was feasible')
+    if better.shape[0] > 50:
+        print(f'{better.shape[0]} samples where the CNN outperformed the optimization')
+    else:
+        print(f'samples where the CNN performed better: {", ".join(map(str, better))}')
+    print(f'absolute error: mean = {100*np.mean(absolute_error):.2f}, std = {100*np.std(absolute_error):.2f}')
+    print(f'percent error:  mean = {100*np.mean(percent_error):.2f}, std = {100*np.std(percent_error):.2f}')
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='CNN network tests')
     subparsers = parser.add_subparsers(dest='command', required=True)
@@ -287,6 +339,11 @@ if __name__ == '__main__':
     conn_parser.add_argument('--sample', type=int, help='sample to test')
     conn_parser.add_argument('--save', action='store_true')
 
+    stats_parser = subparsers.add_parser('stats', help='compute performance statistics for a dataset')
+    stats_parser.add_argument('model', type=str, help='model')
+    stats_parser.add_argument('dataset', type=str, help='test dataset')
+    stats_parser.add_argument('--train', action='store_true', help='run stats on training data partition')
+
     mpl.rcParams['figure.dpi'] = 150
 
     args = parser.parse_args()
@@ -298,3 +355,5 @@ if __name__ == '__main__':
         segment_test(args)
     elif args.command == 'connectivity':
         connectivity_test(args)
+    elif args.command == 'stats':
+        stats_test(args)
