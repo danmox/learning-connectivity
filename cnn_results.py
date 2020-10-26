@@ -95,9 +95,13 @@ def segment_test(args):
     peaks = compute_peaks(model_image)
 
     fig, ax = plt.subplots()
-    ax.imshow(np.maximum(model_image, input_image))
+    if args.isolate:
+        ax.imshow(model_image)
+    else:
+        ax.imshow(np.maximum(model_image, input_image))
     ax.axis('off')
     ax.plot(peaks[:,1], peaks[:,0], 'ro')
+    ax.invert_yaxis()
     plt.show()
 
 
@@ -275,6 +279,7 @@ if __name__ == '__main__':
     seg_parser.add_argument('model', type=str, help='model')
     seg_parser.add_argument('dataset', type=str, help='test dataset')
     seg_parser.add_argument('--sample', type=int, help='sample to test')
+    seg_parser.add_argument('--isolate', action='store_true')
 
     conn_parser = subparsers.add_parser('connectivity', help='compute connectivity for a CNN output')
     conn_parser.add_argument('model', type=str, help='model')
