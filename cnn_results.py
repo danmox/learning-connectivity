@@ -16,10 +16,35 @@ from hdf5_dataset_utils import ConnectivityDataset
 import h5py
 
 
-def compute_peaks(image):
-    blurred_image = gaussian(image, sigma=2)
-    thresh_mask = threshold_local(blurred_image, 11, method='generic', param=lambda a : max(a.max(), 0.01))
-    peaks = np.argwhere(blurred_image >= thresh_mask)
+def compute_peaks(image, threshold_val=80, blur_sigma=2, region_size=11):
+
+    # remove noise in image
+    blurred_img = gaussian(image, sigma=blur_sigma)
+
+    # only keep the max value in a local region
+    thresh_fcn = lambda a : max(a.max(), 0.01)
+    thresh_mask = threshold_local(blurred_img, region_size, method='generic', param=thresh_fcn)
+    peaks = np.argwhere(blurred_img >= thresh_mask)
+
+    # only pixels above a threshold value should be considered peaks
+    peaks = peaks[image[peaks[:,0], peaks[:,1]] > threshold_val]
+
+    # form list of unique peaks, averaging any that are near each other
+    out_peaks = np.zeros((0,2))
+    used = np.zeros((peaks.shape[0],), dtype=bool)
+    for i in range(peaks.shape[0]-1):
+        if used[i]:
+            continue
+        near_peaks = np.where(np.linalg.norm(peaks[i+1:] - peaks[i], axis=1) < 4)[0].tolist()
+        if len(near_peaks) == 0:
+            out_peaks = np.vstack((out_peaks, peaks[i]))
+            used[i] = True
+        else:
+            import pdb;pdb.set_trace()
+            near_peaks.append(i)
+            out_peaks = np.vstack((out_peaks, np.mean(peaks[near_peaks], axis=0)))
+            used[near_peaks] = True
+
     return peaks
 
 
@@ -67,10 +92,7 @@ def segment_test(args):
     output_image = hdf5_file['test']['comm_img'][idx,...]
     model_image = model.inference(input_image)
 
-    blurred_image = gaussian(model_image, sigma=2)
-    thresh_mask = threshold_local(blurred_image, 15, method='generic', param=lambda a : max(a.max(), 0.01))
-    peaks_image = blurred_image >= thresh_mask
-    peaks = np.argwhere(peaks_image)
+    peaks = compute_peaks(model_image)
 
     fig, ax = plt.subplots()
     ax.imshow(np.maximum(model_image, input_image))
