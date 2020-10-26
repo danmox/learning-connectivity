@@ -126,11 +126,10 @@ class AEBase(pl.LightningModule):
         outputs:
           y_hat - a numpy image in the same format as x
         """
-        self.eval()
-        x = torch.from_numpy(np.expand_dims(x / 255.0, axis=(0,1))).float()
         with torch.no_grad():
+            x = torch.from_numpy(np.expand_dims(x / 255.0, axis=(0,1))).float()
             y_hat, _, _ = self(x)
-        y_hat = torch.clamp(255*y_hat, 0, 255).cpu().detach().numpy().astype(np.uint8).squeeze()
+            y_hat = torch.clamp(255*y_hat, 0, 255).cpu().detach().numpy().astype(np.uint8).squeeze()
         return y_hat
 
 
@@ -373,13 +372,21 @@ def train_main(args):
     trainer.fit(model, train_dataloader, val_dataloader)
 
 
-def eval_main(args):
-
-    model_file = Path(args.model)
+def load_model_for_eval(model_file):
+    model_file = Path(model_file)
     if not model_file.exists():
         print(f'provided model {model_file} not found')
+        return None
+    model = BetaVAEModel.load_from_checkpoint(str(model_file), beta=1.0, z_dim=16)
+    model.eval()
+    return model
+
+
+def eval_main(args):
+
+    model = load_model_for_eval(args.model)
+    if model is None:
         return
-    model = BetaVAEModel.load_from_checkpoint(args.model, beta=1.0, z_dim=16)
 
     dataset_file = Path(args.dataset)
     if not dataset_file.exists():

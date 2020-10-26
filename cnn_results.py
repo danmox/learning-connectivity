@@ -2,7 +2,7 @@ import pytorch_lightning as pl
 from pathlib import Path
 from hdf5_dataset_utils import kernelized_config_img, cnn_image_parameters, subs_to_pos, pos_to_subs
 from math import ceil, sqrt
-from cnn import BetaVAEModel
+from cnn import BetaVAEModel, load_model_for_eval
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import argparse
@@ -66,12 +66,9 @@ def connectivity_from_config(task_config, p):
 
 def segment_test(args):
 
-    model_file = Path(args.model)
-    if not model_file.exists():
-        print(f'provided model {model_file} not found')
+    model = load_model_for_eval(args.model)
+    if model is None:
         return
-    model = BetaVAEModel.load_from_checkpoint(args.model, beta=1.0, z_dim=16)
-    model.eval()
 
     dataset_file = Path(args.dataset)
     if not dataset_file.exists():
@@ -107,11 +104,9 @@ def segment_test(args):
 
 def line_test(args):
 
-    model_file = Path(args.model)
-    if not model_file.exists():
-        print(f'provided model {model_file} not found')
+    model = load_model_for_eval(args.model)
+    if model is None:
         return
-    model = BetaVAEModel.load_from_checkpoint(args.model, beta=1.0, z_dim=16)
 
     params = cnn_image_parameters()
 
@@ -156,12 +151,9 @@ def line_test(args):
 
 def worst_test(args):
 
-    model_file = Path(args.model)
-    if not model_file.exists():
-        print(f'provided model {model_file} not found')
+    model = load_model_for_eval(args.model)
+    if model is None:
         return
-    model = BetaVAEModel.load_from_checkpoint(args.model, beta=1.0, z_dim=16)
-    model.eval()
 
     dataset_file = Path(args.dataset)
     if not dataset_file.exists():
@@ -209,11 +201,9 @@ def worst_test(args):
 
 def connectivity_test(args):
 
-    model_file = Path(args.model)
-    if not model_file.exists():
-        print(f'provided model {model_file} not found')
+    model = load_model_for_eval(args.model)
+    if model is None:
         return
-    model = BetaVAEModel.load_from_checkpoint(args.model, beta=1.0, z_dim=16)
 
     dataset_file = Path(args.dataset)
     if not dataset_file.exists():
@@ -264,12 +254,10 @@ def connectivity_test(args):
 
 
 def stats_test(args):
-    model_file = Path(args.model)
-    if not model_file.exists():
-        print(f'provided model {model_file} not found')
+
+    model = load_model_for_eval(args.model)
+    if model is None:
         return
-    model = BetaVAEModel.load_from_checkpoint(args.model, beta=1.0, z_dim=16)
-    model.eval()
 
     dataset_file = Path(args.dataset)
     if not dataset_file.exists():
