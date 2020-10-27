@@ -305,6 +305,65 @@ def stats_test(args):
     print(f'percent error:  mean = {100*np.mean(percent_error):.2f}, std = {100*np.std(percent_error):.2f}')
 
 
+def variation_test(args):
+
+    model = load_model_for_eval(args.model)
+    if model is None:
+        return
+
+    dataset_file = Path(args.dataset)
+    if not dataset_file.exists():
+        print(f'provided dataset {dataset_file} not found')
+        return
+    hdf5_file = h5py.File(dataset_file, mode='r')
+    dataset_len = hdf5_file['test']['task_img'].shape[0]
+
+    if args.sample is None:
+        idx = np.random.randint(dataset_len)
+    elif args.sample > dataset_len:
+        print(f'provided sample index {args.sample} out of range of dataset with length {dataset_len}')
+        return
+    else:
+        idx = args.sample
+
+    x = hdf5_file['test']['task_img'][idx,...]
+
+    with torch.no_grad():
+        x1 = torch.from_numpy(np.expand_dims(x / 255.0, axis=(0,1))).float()
+        y_hat1, _, _ = model(x1)
+        y_out1 = torch.clamp(255*y_hat1, 0, 255).cpu().detach().numpy().astype(np.uint8).squeeze()
+
+        x2 = torch.from_numpy(np.expand_dims(x / 255.0, axis=(0,1))).float()
+        y_hat2, _, _ = model(x2)
+        y_out2 = torch.clamp(255*y_hat1, 0, 255).cpu().detach().numpy().astype(np.uint8).squeeze()
+
+    diff_x = x1 - x2
+    diff_y_hat = y_hat1 - y_hat2
+    diff_y_out = y_out1 - y_out2
+
+    print(f'diff_x: min = {diff_x.min()}, max = {diff_x.max()}')
+    print(f'diff_y_hat: min = {diff_y_hat.min()}, max = {diff_y_hat.max()}')
+    print(f'diff_y_out: min = {diff_y_out.min()}, max = {diff_y_out.max()}')
+
+    # ax = plt.subplot(1,3,1)
+    # ax.imshow(model_image1, vmax=255)
+    # ax.get_xaxis().set_visible(False)
+    # ax.get_yaxis().set_visible(False)
+    # ax.set_title('model_image1')
+    # ax = plt.subplot(1,3,2)
+    # ax.imshow(model_image2, vmax=255)
+    # ax.get_xaxis().set_visible(False)
+    # ax.get_yaxis().set_visible(False)
+    # ax.set_title('model_image2')
+    # ax = plt.subplot(1,3,3)
+    # ax.imshow(np.abs(diff), vmax=255)
+    # ax.get_xaxis().set_visible(False)
+    # ax.get_yaxis().set_visible(False)
+    # ax.set_title('abs(diff)')
+    # plt.tight_layout()
+    # plt.show()
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='CNN network tests')
     subparsers = parser.add_subparsers(dest='command', required=True)
@@ -335,6 +394,11 @@ if __name__ == '__main__':
     stats_parser.add_argument('dataset', type=str, help='test dataset')
     stats_parser.add_argument('--train', action='store_true', help='run stats on training data partition')
 
+    var_parser = subparsers.add_parser('variation', help='show variation in model outputs')
+    var_parser.add_argument('model', type=str, help='model')
+    var_parser.add_argument('dataset', type=str, help='test dataset')
+    var_parser.add_argument('--sample', type=int, help='sample to test')
+
     mpl.rcParams['figure.dpi'] = 150
 
     args = parser.parse_args()
@@ -348,3 +412,5 @@ if __name__ == '__main__':
         connectivity_test(args)
     elif args.command == 'stats':
         stats_test(args)
+    elif args.command == 'variation':
+        variation_test(args)
