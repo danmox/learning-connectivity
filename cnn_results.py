@@ -149,7 +149,7 @@ def line_test(args):
             plt.show()
 
 
-def worst_test(args):
+def extrema_test(args):
 
     model = load_model_for_eval(args.model)
     if model is None:
@@ -161,23 +161,30 @@ def worst_test(args):
         return
     dataset = ConnectivityDataset(dataset_file, train=False)
 
-    worst_loss = 0.0
+    if args.best:
+        extrema_test = lambda l : l < extreme_loss
+        extreme_loss = np.Inf
+        print(f'seeking the best performing sample')
+    else:
+        extrema_test = lambda l : l > extreme_loss
+        extreme_loss = 0.0
+        print(f'seeking the worst performing sample')
     with torch.no_grad():
         print(f'looping through {len(dataset)} test samples in {dataset_file}')
         for i in range(len(dataset)):
             print(f'\rprocessing sample {i+1} of {len(dataset)}\r', end="")
             batch = [torch.unsqueeze(ten, 0) for ten in dataset[i]]
             loss = model.validation_step(batch, None)
-            if loss > worst_loss:
-                worst_idx = i
-                worst_loss = loss
+            if extrema_test(loss):
+                extreme_idx = i
+                extreme_loss = loss
 
     hdf5_file = h5py.File(dataset_file, mode='r')
-    input_image = hdf5_file['test']['task_img'][worst_idx,...]
-    output_image = hdf5_file['test']['comm_img'][worst_idx,...]
+    input_image = hdf5_file['test']['task_img'][extreme_idx,...]
+    output_image = hdf5_file['test']['comm_img'][extreme_idx,...]
     model_image = model.inference(input_image)
 
-    print(f'worst sample is {worst_idx}{20*" "}')
+    print(f'worst sample is {extreme_idx}{20*" "}')
     ax = plt.subplot(1,3,1)
     ax.imshow(input_image)
     ax.get_xaxis().set_visible(False)
@@ -372,9 +379,10 @@ if __name__ == '__main__':
     line_parser.add_argument('model', type=str, help='model to test')
     line_parser.add_argument('--save', action='store_true')
 
-    worst_parser = subparsers.add_parser('worst', help='show examples where the provided model performs the worst on the given dataset')
-    worst_parser.add_argument('model', type=str, help='model to test')
-    worst_parser.add_argument('dataset', type=str, help='test dataset')
+    extrema_parser = subparsers.add_parser('extrema', help='show examples where the provided model performs well/poorly on the given dataset')
+    extrema_parser.add_argument('model', type=str, help='model to test')
+    extrema_parser.add_argument('dataset', type=str, help='test dataset')
+    extrema_parser.add_argument('--best', action='store_true', help='look for best results instead of worst')
 
     seg_parser = subparsers.add_parser('segment', help='test out segmentation method for extracting distribution from image')
     seg_parser.add_argument('model', type=str, help='model')
@@ -404,8 +412,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.command == 'line':
         line_test(args)
-    elif args.command == 'worst':
-        worst_test(args)
+    elif args.command == 'extrema':
+        extrema_test(args)
     elif args.command == 'segment':
         segment_test(args)
     elif args.command == 'connectivity':
