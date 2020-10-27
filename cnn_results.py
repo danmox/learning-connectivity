@@ -9,6 +9,7 @@ import argparse
 import numpy as np
 from skimage.filters.thresholding import threshold_local
 from skimage.filters import gaussian
+from connectivity_maximization import circle_points
 from network_planner.connectivity_optimization import ConnectivityOpt as ConnOpt
 from feasibility import connect_graph
 import torch
@@ -57,10 +58,10 @@ def connectivity_from_image(task_config, out_img, p):
     return connectivity, comm_config
 
 
-def connectivity_from_config(task_config, p):
+def connectivity_from_config(task_config, p, viz=False):
     comm_config = connect_graph(task_config, p['comm_range'])
     opt = ConnOpt(p['channel_model'], task_config, comm_config)
-    conn = opt.maximize_connectivity()
+    conn = opt.maximize_connectivity(viz=viz)
     return conn, opt.get_comm_config()
 
 
@@ -109,6 +110,7 @@ def line_test(args):
         return
 
     params = cnn_image_parameters()
+    img_extents = params['img_side_len'] / 2.0 * np.asarray([-1,1,1,-1])
 
     start_config = np.asarray([[0, 20], [0, -20]])
     step = 2*np.asarray([[0, 1],[0, -1]])
@@ -119,11 +121,6 @@ def line_test(args):
 
         cnn_conn, cnn_config = connectivity_from_image(task_config, out, params)
         opt_conn, opt_config = connectivity_from_config(task_config, params)
-        opt_subs = pos_to_subs(params['meters_per_pixel'], params['img_size'][0], opt_config)
-        cnn_subs = pos_to_subs(params['meters_per_pixel'], params['img_size'][0], cnn_config)
-
-        p = cnn_image_parameters()
-        img_extents = p['img_side_len'] / 2.0 * np.asarray([-1,1,1,-1])
 
         fig, ax = plt.subplots()
 
@@ -131,6 +128,53 @@ def line_test(args):
         ax.plot(task_config[:,1], task_config[:,0], 'ro', label='task')
         ax.plot(opt_config[:,1], opt_config[:,0], 'rx', label='comm. opt.', ms=9, mew=3)
         ax.plot(cnn_config[:,1], cnn_config[:,0], 'bx', label='comm. CNN', ms=9, mew=3)
+
+        ax.invert_yaxis()
+        ax.set_yticks(np.arange(-80, 80, 20))
+        ax.tick_params(axis='both', which='major', labelsize=16)
+
+        ax.legend(loc='best', fontsize=14)
+        ax.set_title(f'opt. = {opt_conn:.3f}, cnn = {cnn_conn:.3f}', fontsize=18)
+
+        plt.tight_layout()
+
+        if args.save:
+            filename = f'line_{i:02d}_{model_file.stem}.png'
+            plt.savefig(filename, dpi=150)
+            print(f'saved image {filename}')
+        else:
+            plt.show()
+
+
+def circle_test(args):
+
+    model = load_model_for_eval(args.model)
+    if model is None:
+        return
+
+    params = cnn_image_parameters()
+    img_extents = params['img_side_len'] / 2.0 * np.asarray([-1,1,1,-1])
+
+    task_agents = 4
+    min_rad = (params['comm_range']+2.0) / (2.0 * np.sin(np.pi/task_agents))
+    rads = np.linspace(min_rad, 60, 15)
+    for i, rad in enumerate(rads):
+        task_config = circle_points(rad, task_agents)
+        img = kernelized_config_img(task_config, params)
+        out = model.inference(img)
+
+        cnn_conn, cnn_config = connectivity_from_image(task_config, out, params)
+        opt_conn, opt_config = connectivity_from_config(task_config, params, viz=True)
+        print(f'it {i+1:2d}: rad = {rad:.1f}m, cnn # = {cnn_config.shape[0]}, '
+              f'cnn conn = {cnn_conn:.4f}, opt # = {opt_config.shape[0]}, '
+              f'opt conn = {opt_conn:.4f}')
+
+        fig, ax = plt.subplots()
+
+        ax.imshow(np.maximum(out, img), extent=img_extents)
+        ax.plot(task_config[:,1], task_config[:,0], 'ro', label='task')
+        ax.plot(opt_config[:,1], opt_config[:,0], 'rx', label=f'opt ({opt_config.shape[0]})', ms=9, mew=3)
+        ax.plot(cnn_config[:,1], cnn_config[:,0], 'bx', label=f'CNN ({cnn_config.shape[0]})', ms=9, mew=3)
 
         ax.invert_yaxis()
         ax.set_yticks(np.arange(-80, 80, 20))
@@ -379,6 +423,10 @@ if __name__ == '__main__':
     line_parser.add_argument('model', type=str, help='model to test')
     line_parser.add_argument('--save', action='store_true')
 
+    circ_parser = subparsers.add_parser('circle', help='run circle test on provided model')
+    circ_parser.add_argument('model', type=str, help='model to test')
+    circ_parser.add_argument('--save', action='store_true')
+
     extrema_parser = subparsers.add_parser('extrema', help='show examples where the provided model performs well/poorly on the given dataset')
     extrema_parser.add_argument('model', type=str, help='model to test')
     extrema_parser.add_argument('dataset', type=str, help='test dataset')
@@ -412,6 +460,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.command == 'line':
         line_test(args)
+    elif args.command == 'circle':
+        circle_test(args)
     elif args.command == 'extrema':
         extrema_test(args)
     elif args.command == 'segment':
