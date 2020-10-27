@@ -205,12 +205,14 @@ def connectivity_test(args):
     if model is None:
         return
 
+    mode = 'train' if args.train else 'test'
+
     dataset_file = Path(args.dataset)
     if not dataset_file.exists():
         print(f'provided dataset {dataset_file} not found')
         return
     hdf5_file = h5py.File(dataset_file, mode='r')
-    dataset_len = hdf5_file['test']['task_img'].shape[0]
+    dataset_len = hdf5_file[mode]['task_img'].shape[0]
 
     if args.sample is None:
         idx = np.random.randint(dataset_len)
@@ -220,10 +222,10 @@ def connectivity_test(args):
     else:
         idx = args.sample
 
-    input_image = hdf5_file['test']['task_img'][idx,...]
-    opt_conn = hdf5_file['test']['connectivity'][idx]
-    task_config = hdf5_file['test']['task_config'][idx,...]
-    comm_config = hdf5_file['test']['comm_config'][idx,...]
+    input_image = hdf5_file[mode]['task_img'][idx,...]
+    opt_conn = hdf5_file[mode]['connectivity'][idx]
+    task_config = hdf5_file[mode]['task_config'][idx,...]
+    comm_config = hdf5_file[mode]['comm_config'][idx,...]
     model_image = model.inference(input_image)
 
     p = cnn_image_parameters()
@@ -326,6 +328,7 @@ if __name__ == '__main__':
     conn_parser.add_argument('dataset', type=str, help='test dataset')
     conn_parser.add_argument('--sample', type=int, help='sample to test')
     conn_parser.add_argument('--save', action='store_true')
+    conn_parser.add_argument('--train', action='store_true', help='draw sample from training data')
 
     stats_parser = subparsers.add_parser('stats', help='compute performance statistics for a dataset')
     stats_parser.add_argument('model', type=str, help='model')
