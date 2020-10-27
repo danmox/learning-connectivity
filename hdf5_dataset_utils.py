@@ -213,7 +213,7 @@ def cnn_image_parameters():
     img_res = 128
 
     p = {}
-    p['comm_range'] = 30               # maximum range of communication hardware
+    p['comm_range'] = 30.0-1.0         # (almost) the maximum range of communication hardware
     p['img_size'] = (img_res, img_res) # square images used with CNN
     p['kernel_std'] = img_res * 0.05   # size of Gaussian kernel used to mark agent locations
     p['meters_per_pixel'] = 1.25       # metric distance of each pixel in the image
