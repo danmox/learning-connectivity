@@ -73,13 +73,11 @@ def conn_max_test():
     # cm = LinearChannel(max_range=comm_range)
     co = ConnectivityOpt(cm, x_task, x_comm)
 
-    task_rates, _ = cm.predict(x_task)
-    plot_config(x_task, rates=task_rates)
-
     init_rates, _ = cm.predict(co.config)
     plot_config(co.config, task_ids=range(task_agents), rates=init_rates)
 
-    co.maximize_connectivity(step_size=1.0, tol=1e-6, viz=True)
+    co.maximize_connectivity(init_step_size=0.5, min_step_size=0.01,
+                             m_tol=1e-6, h_tol=1e-5, viz=True)
 
     team_rates, _ = cm.predict(co.config)
     plot_config(co.config, task_ids=range(task_agents), rates=team_rates)
