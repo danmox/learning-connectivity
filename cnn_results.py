@@ -105,7 +105,7 @@ def compute_coverage(image, params, viz=False):
 
     # NOTE in rare cases no peaks with intensity greater than 80 are found in
     # the image, so walk back the threshold until one is found
-    threshold = 80
+    threshold = 60
     while True:
 
         # blank CNN output -> node positions are arbitrary
@@ -127,6 +127,7 @@ def compute_coverage(image, params, viz=False):
 
     it = 1
     bbx = params['img_side_len'] / 2.0 * np.asarray([-1,1,-1,1])
+    coverage_range = 2.0 * params['kernel_std']
     while True:
 
         voronoi_cells = compute_voronoi(config, bbx)
@@ -139,8 +140,10 @@ def compute_coverage(image, params, viz=False):
             # assemble the position of the center and corresponding intensity
             # of every pixel that falls within the voronoi cell
             cell_pixel_mask = cell.find_simplex(params['xy']) >= 0
-            cell_pixel_pos = params['xy'][cell_pixel_mask]
-            cell_pixel_val = image[cell_pixel_mask]
+            coverage_range_mask = np.linalg.norm(params['xy'] - config[i], axis=2) < coverage_range
+            pixel_mask = cell_pixel_mask & coverage_range_mask
+            cell_pixel_pos = params['xy'][pixel_mask]
+            cell_pixel_val = image[pixel_mask]
             cell_volume = np.sum(cell_pixel_val)
 
             # if there are intensity values >0 within the voronoi cell compute
