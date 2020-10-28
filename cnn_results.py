@@ -10,11 +10,12 @@ import numpy as np
 from skimage.filters.thresholding import threshold_local
 from skimage.filters import gaussian
 from connectivity_maximization import circle_points
-from network_planner.connectivity_optimization import ConnectivityOpt as ConnOpt
+from network_planner.connectivity_optimization import ConnectivityOpt as ConnOpt, round_sf
 from feasibility import connect_graph
 import torch
 from hdf5_dataset_utils import ConnectivityDataset
 import h5py
+from scipy.spatial import Voronoi, Delaunay
 
 
 def compute_peaks(image, threshold_val=80, blur_sigma=2, region_size=11):
@@ -65,6 +66,119 @@ def connectivity_from_config(task_config, p, viz=False):
     return conn, opt.get_comm_config()
 
 
+def compute_voronoi(pts, bbx):
+
+    # reflect points about all sides of bbx
+    pts_l = np.copy(pts)
+    pts_l[:,0] = -pts_l[:,0] + 2*bbx[0]
+    pts_r = np.copy(pts)
+    pts_r[:,0] = -pts_r[:,0] + 2*bbx[1]
+    pts_d = np.copy(pts)
+    pts_d[:,1] = -pts_d[:,1] + 2*bbx[2]
+    pts_u = np.copy(pts)
+    pts_u[:,1] = -pts_u[:,1] + 2*bbx[3]
+    pts_all = np.vstack((pts, pts_l, pts_r, pts_d, pts_u))
+
+    # Voronoi tesselation of all points, including the reflected ones: as a
+    # result the Voronoi cells associated with pts are all closed
+    vor = Voronoi(pts_all)
+
+    # vor contains Voronoi information for pts_all but we only need the 1st
+    # fifth that correspond to pts
+    region_idcs = vor.point_region[:vor.point_region.shape[0]//5].tolist()
+    vertex_idcs = [vor.regions[i] for i in region_idcs]
+    cell_polygons = [vor.vertices[idcs] for idcs in vertex_idcs]
+
+    # generate triangulations of cells for use in integration
+    hulls = []
+    for poly in cell_polygons:
+        hulls.append(Delaunay(poly))
+
+    return hulls
+
+
+def compute_coverage(image, params, viz=False):
+    """compute coverage with N agents using Lloyd's Algorithm"""
+
+    # extract peaks of intensity image
+
+    # NOTE in rare cases no peaks with intensity greater than 80 are found in
+    # the image, so walk back the threshold until one is found
+    threshold = 80
+    while True:
+
+        # blank CNN output -> node positions are arbitrary
+        if threshold < 0:
+            return np.zeros((0,2))
+
+        config_subs = compute_peaks(image, threshold_val=40)
+        if config_subs.shape[0] == 0:
+            threshold -= 20
+            continue
+
+        config = subs_to_pos(params['meters_per_pixel'], params['img_size'][0], config_subs)
+        config_subs = compute_peaks(image, threshold_val=0)
+        break
+
+    peaks = np.copy(config)
+
+    # Lloyd's algorithm
+
+    it = 1
+    bbx = params['img_side_len'] / 2.0 * np.asarray([-1,1,-1,1])
+    while True:
+
+        voronoi_cells = compute_voronoi(config, bbx)
+
+        cell_patches = []
+        centroids = np.zeros((len(voronoi_cells),2))
+        for i, cell in enumerate(voronoi_cells):
+            cell_patches.append(mpl.patches.Polygon(np.fliplr(cell.points), True))
+
+            # assemble the position of the center and corresponding intensity
+            # of every pixel that falls within the voronoi cell
+            cell_pixel_mask = cell.find_simplex(params['xy']) >= 0
+            cell_pixel_pos = params['xy'][cell_pixel_mask]
+            cell_pixel_val = image[cell_pixel_mask]
+            cell_volume = np.sum(cell_pixel_val)
+
+            # if there are intensity values >0 within the voronoi cell compute
+            # the intensity weighted centroid of of the cell otherwise compute
+            # the geometric centroid of the cell
+            if cell_volume < 1e-8:
+                centroids[i] = np.sum(cell_pixel_pos, axis=0) / cell_pixel_pos.shape[0]
+            else:
+                centroids[i] = np.sum(cell_pixel_val[:, np.newaxis] * cell_pixel_pos, axis=0) / cell_volume
+
+        update_dist = np.sum(np.linalg.norm(config - centroids, axis=1))
+
+        if viz:
+            p = mpl.collections.PatchCollection(cell_patches, alpha=0.2)
+            p.set_array(np.arange(len(cell_patches)))
+            p.set_cmap('tab10')
+
+            img_extents = params['img_side_len'] / 2.0 * np.asarray([-1,1,1,-1])
+            fig, ax = plt.subplots()
+            ax.imshow(image, extent=img_extents)
+            ax.add_collection(p)
+            ax.plot(peaks[:,1], peaks[:,0], 'rx', label='peaks')
+            ax.plot(centroids[:,1], centroids[:,0], 'bo', label='centroids')
+            # ax.plot(config[:,1], config[:,0], 'bx', color=(0,1,0), label='prev config')
+            ax.invert_yaxis()
+            ax.set_title(f'it {it}, cond = {round_sf(update_dist,3)}')
+            ax.legend()
+            plt.show()
+
+        # exit if the configuration hasn't appreciably changed
+        if update_dist < 1e-5:
+            break
+
+        config = centroids
+        it += 1
+
+    return config
+
+
 def segment_test(args):
 
     model = load_model_for_eval(args.model)
@@ -90,17 +204,21 @@ def segment_test(args):
     output_image = hdf5_file['test']['comm_img'][idx,...]
     model_image = model.inference(input_image)
 
-    peaks = compute_peaks(model_image)
+    params = cnn_image_parameters()
+    img_extents = params['img_side_len'] / 2.0 * np.asarray([-1,1,1,-1])
+
+    coverage_points = compute_coverage(model_image, params, viz=args.view)
 
     fig, ax = plt.subplots()
     if args.isolate:
-        ax.imshow(model_image)
+        ax.imshow(model_image, extent=img_extents)
     else:
-        ax.imshow(np.maximum(model_image, input_image))
-    ax.axis('off')
-    ax.plot(peaks[:,1], peaks[:,0], 'ro')
+        ax.imshow(np.maximum(model_image, input_image), extent=img_extents)
+    ax.plot(coverage_points[:,1], coverage_points[:,0], 'ro')
     ax.invert_yaxis()
+    # ax.axis('off')
     plt.show()
+    print(f'optimal coverage computed for {dataset_file.name} test partition sample {idx}')
 
 
 def line_test(args):
@@ -437,6 +555,7 @@ if __name__ == '__main__':
     seg_parser.add_argument('dataset', type=str, help='test dataset')
     seg_parser.add_argument('--sample', type=int, help='sample to test')
     seg_parser.add_argument('--isolate', action='store_true')
+    seg_parser.add_argument('--view', action='store_true', help="show each iteration of Lloyd's algorithm")
 
     conn_parser = subparsers.add_parser('connectivity', help='compute connectivity for a CNN output')
     conn_parser.add_argument('model', type=str, help='model')
