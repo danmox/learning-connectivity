@@ -51,13 +51,10 @@ def compute_peaks(image, threshold_val=80, blur_sigma=1, region_size=7):
     return peaks
 
 
-def connectivity_from_image(task_config, out_img, p):
-    peaks = compute_peaks(out_img)
-    comm_config = np.zeros_like(peaks)
-    for i, peak in enumerate(peaks):
-        comm_config[i,:] = subs_to_pos(p['meters_per_pixel'], p['img_size'][0], peak)
-    connectivity = ConnOpt.connectivity(p['channel_model'], task_config, comm_config)
-    return connectivity, comm_config
+def connectivity_from_image(task_config, image, p, viz=False):
+    coverage_config = compute_coverage(image, p, viz)
+    connectivity = ConnOpt.connectivity(p['channel_model'], task_config, coverage_config)
+    return connectivity, coverage_config
 
 
 def connectivity_from_config(task_config, p, viz=False):
@@ -282,8 +279,8 @@ def circle_test(args):
         img = kernelized_config_img(task_config, params)
         out = model.inference(img)
 
-        cnn_conn, cnn_config = connectivity_from_image(task_config, out, params)
-        opt_conn, opt_config = connectivity_from_config(task_config, params, viz=True)
+        cnn_conn, cnn_config = connectivity_from_image(task_config, out, params, viz=args.view)
+        opt_conn, opt_config = connectivity_from_config(task_config, params, viz=args.view)
         print(f'it {i+1:2d}: rad = {rad:.1f}m, cnn # = {cnn_config.shape[0]}, '
               f'cnn conn = {cnn_conn:.4f}, opt # = {opt_config.shape[0]}, '
               f'opt conn = {opt_conn:.4f}')
@@ -546,6 +543,7 @@ if __name__ == '__main__':
     circ_parser = subparsers.add_parser('circle', help='run circle test on provided model')
     circ_parser.add_argument('model', type=str, help='model to test')
     circ_parser.add_argument('--save', action='store_true')
+    circ_parser.add_argument('--view', action='store_true', help='turn on debugging plots')
 
     extrema_parser = subparsers.add_parser('extrema', help='show examples where the provided model performs well/poorly on the given dataset')
     extrema_parser.add_argument('model', type=str, help='model to test')
