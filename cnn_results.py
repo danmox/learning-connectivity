@@ -19,7 +19,7 @@ import h5py
 from scipy.spatial import Voronoi, Delaunay
 
 
-def compute_peaks(image, threshold_val=80, blur_sigma=2, region_size=11):
+def compute_peaks(image, threshold_val=80, blur_sigma=1, region_size=7):
 
     # remove noise in image
     blurred_img = gaussian(image, sigma=blur_sigma)
@@ -112,13 +112,14 @@ def compute_coverage(image, params, viz=False):
         if threshold < 0:
             return np.zeros((0,2))
 
-        config_subs = compute_peaks(image, threshold_val=40)
+        config_subs = compute_peaks(image, threshold_val=threshold)
         if config_subs.shape[0] == 0:
             threshold -= 20
             continue
 
         config = subs_to_pos(params['meters_per_pixel'], params['img_size'][0], config_subs)
         config_subs = compute_peaks(image, threshold_val=0)
+
         break
 
     peaks = np.copy(config)
@@ -127,7 +128,7 @@ def compute_coverage(image, params, viz=False):
 
     it = 1
     bbx = params['img_side_len'] / 2.0 * np.asarray([-1,1,-1,1])
-    coverage_range = 2.0 * params['kernel_std']
+    coverage_range = 1.5 * params['kernel_std']
     while True:
 
         voronoi_cells = compute_voronoi(config, bbx)
@@ -163,12 +164,10 @@ def compute_coverage(image, params, viz=False):
             p.set_array(np.arange(len(cell_patches)))
             p.set_cmap('tab10')
 
-            c = mpl.collections.PatchCollection(circle_patches, ec='r', fc='none')
-
             fig, ax = plt.subplots()
             plot_image(image, params, ax)
             ax.add_collection(p)
-            ax.add_collection(c)
+            ax.add_collection(mpl.collections.PatchCollection(circle_patches, ec='r', fc='none'))
             ax.plot(peaks[:,0], peaks[:,1], 'rx', label='peaks')
             ax.plot(centroids[:,0], centroids[:,1], 'bo', label='centroids')
             # ax.plot(config[:,1], config[:,0], 'bx', color=(0,1,0), label='prev config')
