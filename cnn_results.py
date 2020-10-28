@@ -1,6 +1,7 @@
 import pytorch_lightning as pl
 from pathlib import Path
-from hdf5_dataset_utils import kernelized_config_img, cnn_image_parameters, subs_to_pos, pos_to_subs
+from hdf5_dataset_utils import kernelized_config_img, subs_to_pos, pos_to_subs
+from hdf5_dataset_utils import cnn_image_parameters, plot_image
 from math import ceil, sqrt
 from cnn import BetaVAEModel, load_model_for_eval
 import matplotlib.pyplot as plt
@@ -133,7 +134,7 @@ def compute_coverage(image, params, viz=False):
         cell_patches = []
         centroids = np.zeros((len(voronoi_cells),2))
         for i, cell in enumerate(voronoi_cells):
-            cell_patches.append(mpl.patches.Polygon(np.fliplr(cell.points), True))
+            cell_patches.append(mpl.patches.Polygon(cell.points, True))
 
             # assemble the position of the center and corresponding intensity
             # of every pixel that falls within the voronoi cell
@@ -157,14 +158,12 @@ def compute_coverage(image, params, viz=False):
             p.set_array(np.arange(len(cell_patches)))
             p.set_cmap('tab10')
 
-            img_extents = params['img_side_len'] / 2.0 * np.asarray([-1,1,1,-1])
             fig, ax = plt.subplots()
-            ax.imshow(image, extent=img_extents)
+            plot_image(image, params, ax)
             ax.add_collection(p)
-            ax.plot(peaks[:,1], peaks[:,0], 'rx', label='peaks')
-            ax.plot(centroids[:,1], centroids[:,0], 'bo', label='centroids')
+            ax.plot(peaks[:,0], peaks[:,1], 'rx', label='peaks')
+            ax.plot(centroids[:,0], centroids[:,1], 'bo', label='centroids')
             # ax.plot(config[:,1], config[:,0], 'bx', color=(0,1,0), label='prev config')
-            ax.invert_yaxis()
             ax.set_title(f'it {it}, cond = {round_sf(update_dist,3)}')
             ax.legend()
             plt.show()
@@ -205,17 +204,15 @@ def segment_test(args):
     model_image = model.inference(input_image)
 
     params = cnn_image_parameters()
-    img_extents = params['img_side_len'] / 2.0 * np.asarray([-1,1,1,-1])
 
     coverage_points = compute_coverage(model_image, params, viz=args.view)
 
     fig, ax = plt.subplots()
     if args.isolate:
-        ax.imshow(model_image, extent=img_extents)
+        plot_image(model_image, params, ax)
     else:
-        ax.imshow(np.maximum(model_image, input_image), extent=img_extents)
-    ax.plot(coverage_points[:,1], coverage_points[:,0], 'ro')
-    ax.invert_yaxis()
+        plot_image(np.maximum(model_image, input_image), params, ax)
+    ax.plot(coverage_points[:,0], coverage_points[:,1], 'ro')
     # ax.axis('off')
     plt.show()
     print(f'optimal coverage computed for {dataset_file.name} test partition sample {idx}')
@@ -228,10 +225,9 @@ def line_test(args):
         return
 
     params = cnn_image_parameters()
-    img_extents = params['img_side_len'] / 2.0 * np.asarray([-1,1,1,-1])
 
-    start_config = np.asarray([[0, 20], [0, -20]])
-    step = 2*np.asarray([[0, 1],[0, -1]])
+    start_config = np.asarray([[20., 0.], [-20., 0.]])
+    step = 2*np.asarray([[1., 0.],[-1., 0.]])
     for i in range(20):
         task_config = start_config + i*step
         img = kernelized_config_img(task_config, params)
@@ -242,12 +238,11 @@ def line_test(args):
 
         fig, ax = plt.subplots()
 
-        ax.imshow(np.maximum(out, img), extent=img_extents)
-        ax.plot(task_config[:,1], task_config[:,0], 'ro', label='task')
-        ax.plot(opt_config[:,1], opt_config[:,0], 'rx', label='comm. opt.', ms=9, mew=3)
-        ax.plot(cnn_config[:,1], cnn_config[:,0], 'bx', label='comm. CNN', ms=9, mew=3)
+        plot_image(np.maximum(out, img), params, ax)
+        ax.plot(task_config[:,0], task_config[:,1], 'ro', label='task')
+        ax.plot(opt_config[:,0], opt_config[:,1], 'rx', label='comm. opt.', ms=9, mew=3)
+        ax.plot(cnn_config[:,0], cnn_config[:,1], 'bx', label='comm. CNN', ms=9, mew=3)
 
-        ax.invert_yaxis()
         ax.set_yticks(np.arange(-80, 80, 20))
         ax.tick_params(axis='both', which='major', labelsize=16)
 
@@ -271,7 +266,6 @@ def circle_test(args):
         return
 
     params = cnn_image_parameters()
-    img_extents = params['img_side_len'] / 2.0 * np.asarray([-1,1,1,-1])
 
     task_agents = 4
     min_rad = (params['comm_range']+2.0) / (2.0 * np.sin(np.pi/task_agents))
@@ -289,12 +283,11 @@ def circle_test(args):
 
         fig, ax = plt.subplots()
 
-        ax.imshow(np.maximum(out, img), extent=img_extents)
-        ax.plot(task_config[:,1], task_config[:,0], 'ro', label='task')
-        ax.plot(opt_config[:,1], opt_config[:,0], 'rx', label=f'opt ({opt_config.shape[0]})', ms=9, mew=3)
-        ax.plot(cnn_config[:,1], cnn_config[:,0], 'bx', label=f'CNN ({cnn_config.shape[0]})', ms=9, mew=3)
+        plot_image(np.maximum(out, img), params, ax)
+        ax.plot(task_config[:,0], task_config[:,1], 'ro', label='task')
+        ax.plot(opt_config[:,0], opt_config[:,1], 'rx', label=f'opt ({opt_config.shape[0]})', ms=9, mew=3)
+        ax.plot(cnn_config[:,0], cnn_config[:,1], 'bx', label=f'CNN ({cnn_config.shape[0]})', ms=9, mew=3)
 
-        ax.invert_yaxis()
         ax.set_yticks(np.arange(-80, 80, 20))
         ax.tick_params(axis='both', which='major', labelsize=16)
 
@@ -346,19 +339,22 @@ def extrema_test(args):
     output_image = hdf5_file['test']['comm_img'][extreme_idx,...]
     model_image = model.inference(input_image)
 
-    print(f'worst sample is {extreme_idx}{20*" "}')
+    params = cnn_image_parameters()
+
+    extrema_type = 'best' if args.best else 'worst'
+    print(f'{extrema_type} sample is {extreme_idx}{20*" "}')
     ax = plt.subplot(1,3,1)
-    ax.imshow(input_image)
+    plot_image(input_image, params, ax)
     ax.get_xaxis().set_visible(False)
     ax.get_yaxis().set_visible(False)
     ax.set_title('input')
     ax = plt.subplot(1,3,2)
-    ax.imshow(output_image)
+    plot_image(output_image, params, ax)
     ax.get_xaxis().set_visible(False)
     ax.get_yaxis().set_visible(False)
     ax.set_title('target')
     ax = plt.subplot(1,3,3)
-    ax.imshow(model_image)
+    plot_image(model_image, params, ax)
     ax.get_xaxis().set_visible(False)
     ax.get_yaxis().set_visible(False)
     ax.set_title('output')
@@ -397,17 +393,15 @@ def connectivity_test(args):
     comm_config = hdf5_file[mode]['comm_config'][idx,...]
     model_image = model.inference(input_image)
 
-    p = cnn_image_parameters()
-    img_extents = p['img_side_len'] / 2.0 * np.asarray([-1,1,1,-1])
+    params = cnn_image_parameters()
 
-    cnn_conn, cnn_config = connectivity_from_image(task_config, model_image, p)
+    cnn_conn, cnn_config = connectivity_from_image(task_config, model_image, params)
 
     ax = plt.subplot()
-    ax.imshow(np.maximum(input_image, model_image), extent=img_extents)
-    ax.plot(task_config[:,1], task_config[:,0], 'ro', label='task')
-    ax.plot(comm_config[:,1], comm_config[:,0], 'rx', label='comm. opt.', ms=9, mew=3)
-    ax.plot(cnn_config[:,1], cnn_config[:,0], 'bx', label='comm. CNN', ms=9, mew=3)
-    ax.invert_yaxis()
+    plot_image(np.maximum(input_image, model_image), params, ax)
+    ax.plot(task_config[:,0], task_config[:,1], 'ro', label='task')
+    ax.plot(comm_config[:,0], comm_config[:,1], 'rx', label='comm. opt.', ms=9, mew=3)
+    ax.plot(cnn_config[:,0], cnn_config[:,1], 'bx', label='comm. CNN', ms=9, mew=3)
     ax.set_yticks(np.arange(-80, 80, 20))
     ax.legend(loc='best', fontsize=14)
     ax.set_title(f'{idx}: opt. = {opt_conn:.3f}, cnn = {cnn_conn:.3f}', fontsize=18)

@@ -325,6 +325,12 @@ def generate_hdf5_dataset(task_agents, samples, jobs):
     hdf5_proc.join()
 
 
+def plot_image(image, params, ax):
+    img_extents = params['img_side_len'] / 2.0 * np.asarray([-1,1,1,-1])
+    ax.imshow(image.T, extent=img_extents)
+    ax.invert_yaxis()
+
+
 def view_hdf5_dataset(dataset_file, samples):
 
     dataset = Path(dataset_file)
@@ -351,22 +357,20 @@ def view_hdf5_dataset(dataset_file, samples):
 
             # task agent configuration
             ax = plt.subplot(2,2,1)
-            ax.plot(task_config[:,1], task_config[:,0], 'g.', ms=4)
+            ax.plot(task_config[:,0], task_config[:,1], 'g.', ms=4)
             ax.axis('scaled')
             ax.axis(bbx)
-            ax.invert_yaxis()
-            plt.subplot(2,2,2)
-            plt.imshow(hdf5_file[mode]['task_img'][idx,...])
+            ax = plt.subplot(2,2,2)
+            plot_image(hdf5_file[mode]['task_img'][idx,...], params, ax)
 
             # network agent configuration
             ax = plt.subplot(2,2,3)
-            ax.plot(task_config[:,1], task_config[:,0], 'g.', ms=4)
-            ax.plot(comm_config[:,1], comm_config[:,0], 'r.', ms=4)
+            ax.plot(task_config[:,0], task_config[:,1], 'g.', ms=4)
+            ax.plot(comm_config[:,0], comm_config[:,1], 'r.', ms=4)
             ax.axis('scaled')
             ax.axis(bbx)
-            ax.invert_yaxis()
-            plt.subplot(2,2,4)
-            plt.imshow(hdf5_file[mode]['comm_img'][idx,...])
+            ax = plt.subplot(2,2,4)
+            plot_image(hdf5_file[mode]['comm_img'][idx,...], params, ax)
 
             plt.suptitle(f'{mode}ing sample {i+1}/{len(idcs)} with index {idx}', fontsize=14)
             plt.show()
