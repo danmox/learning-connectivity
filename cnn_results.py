@@ -399,6 +399,7 @@ def connectivity_test(args):
     opt_conn = hdf5_file[mode]['connectivity'][idx]
     task_config = hdf5_file[mode]['task_config'][idx,...]
     comm_config = hdf5_file[mode]['comm_config'][idx,...]
+    comm_config = comm_config[~np.isnan(comm_config[:,0])]
     model_image = model.inference(input_image)
 
     params = cnn_image_parameters()
@@ -408,8 +409,8 @@ def connectivity_test(args):
     ax = plt.subplot()
     plot_image(np.maximum(input_image, model_image), params, ax)
     ax.plot(task_config[:,0], task_config[:,1], 'ro', label='task')
-    ax.plot(comm_config[:,0], comm_config[:,1], 'rx', label='comm. opt.', ms=9, mew=3)
-    ax.plot(cnn_config[:,0], cnn_config[:,1], 'bx', label='comm. CNN', ms=9, mew=3)
+    ax.plot(comm_config[:,0], comm_config[:,1], 'rx', label=f'opt ({comm_config.shape[0]})', ms=9, mew=3)
+    ax.plot(cnn_config[:,0], cnn_config[:,1], 'bx', label=f'CNN ({cnn_config.shape[0]})', ms=9, mew=3)
     ax.set_yticks(np.arange(-80, 80, 20))
     ax.legend(loc='best', fontsize=14)
     ax.set_title(f'{idx}: opt. = {opt_conn:.3f}, cnn = {cnn_conn:.3f}', fontsize=18)
