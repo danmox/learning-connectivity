@@ -133,9 +133,11 @@ def compute_coverage(image, params, viz=False):
         voronoi_cells = compute_voronoi(config, bbx)
 
         cell_patches = []
+        circle_patches = []
         centroids = np.zeros((len(voronoi_cells),2))
         for i, cell in enumerate(voronoi_cells):
             cell_patches.append(mpl.patches.Polygon(cell.points, True))
+            circle_patches.append(mpl.patches.Circle(config[i], radius=coverage_range))
 
             # assemble the position of the center and corresponding intensity
             # of every pixel that falls within the voronoi cell
@@ -161,9 +163,12 @@ def compute_coverage(image, params, viz=False):
             p.set_array(np.arange(len(cell_patches)))
             p.set_cmap('tab10')
 
+            c = mpl.collections.PatchCollection(circle_patches, ec='r', fc='none')
+
             fig, ax = plt.subplots()
             plot_image(image, params, ax)
             ax.add_collection(p)
+            ax.add_collection(c)
             ax.plot(peaks[:,0], peaks[:,1], 'rx', label='peaks')
             ax.plot(centroids[:,0], centroids[:,1], 'bo', label='centroids')
             # ax.plot(config[:,1], config[:,0], 'bx', color=(0,1,0), label='prev config')
