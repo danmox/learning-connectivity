@@ -9,3 +9,6 @@ models
 __pycache__
 mobile_networks.pdf
 *.png
+*.npy
+*.npz
+feh_*

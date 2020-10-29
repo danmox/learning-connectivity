@@ -440,6 +440,7 @@ def stats_test(args):
     model = load_model_for_eval(args.model)
     if model is None:
         return
+    model_name = get_file_name(args.model)
 
     dataset_file = Path(args.dataset)
     if not dataset_file.exists():
@@ -449,8 +450,14 @@ def stats_test(args):
 
     mode = 'train' if args.train else 'test'
     dataset_len = hdf5_file[mode]['task_img'].shape[0]
+    if args.samples is not None:
+        if args.samples > dataset_len:
+            print(f'requested sample count ({args.samples}) > dataset length ({dataset_len})')
+            return
+        else:
+            dataset_len = args.samples
 
-    opt_connectivity = hdf5_file[mode]['connectivity'][:]
+    opt_connectivity = hdf5_file[mode]['connectivity'][:dataset_len]
     cnn_connectivity = np.zeros_like(opt_connectivity)
 
     p = cnn_image_parameters()
@@ -474,13 +481,19 @@ def stats_test(args):
     absolute_error = opt_connectivity[both_feasible] - cnn_connectivity[both_feasible]
     percent_error = absolute_error / opt_connectivity[both_feasible]
 
+    if args.save:
+        suffix = f'_{dataset_len}_samples_{model_name}_{dataset_file.stem}'
+        np.save('opt_connectivity' + suffix, opt_connectivity)
+        np.save('cnn_connectivity' + suffix, cnn_connectivity)
+        for name in ('opt_connectivity', 'cnn_connectivity'):
+            print(f'saved data to {name}{suffix}.npy')
+
     print(f'{np.sum(opt_feasible)}/{dataset_len} feasible with optimization')
     print(f'{np.sum(cnn_feasible)}/{dataset_len} feasible with CNN')
     print(f'{np.sum(cnn_feasible & ~opt_feasible)} cases where only the CNN was feasible')
-    if better.shape[0] > 50:
-        print(f'{better.shape[0]} samples where the CNN outperformed the optimization')
-    else:
-        print(f'samples where the CNN performed better: {", ".join(map(str, better))}')
+    print(f'{better.shape[0]} cases where the CNN performed better')
+    if better.shape[0] > 0:
+        print(f'    some samples: {", ".join(map(str, better[:min(20, better.shape[0])]))}')
     print(f'absolute error: mean = {100*np.mean(absolute_error):.2f}, std = {100*np.std(absolute_error):.2f}')
     print(f'percent error:  mean = {100*np.mean(percent_error):.2f}, std = {100*np.std(percent_error):.2f}')
 
@@ -581,6 +594,8 @@ if __name__ == '__main__':
     stats_parser.add_argument('model', type=str, help='model')
     stats_parser.add_argument('dataset', type=str, help='test dataset')
     stats_parser.add_argument('--train', action='store_true', help='run stats on training data partition')
+    stats_parser.add_argument('--samples', type=int, help='number of samples to process')
+    stats_parser.add_argument('--save', action='store_true', help='save connectivity data')
 
     var_parser = subparsers.add_parser('variation', help='show variation in model outputs')
     var_parser.add_argument('model', type=str, help='model')
