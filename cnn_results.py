@@ -20,6 +20,15 @@ from scipy.spatial import Voronoi, Delaunay
 import os
 
 
+def get_file_name(filename):
+    """return name of filename, following symlinks if necessary"""
+    filename = Path(args.model)
+    if filename.is_symlink():
+        return Path(os.readlink(filename)).stem
+    else:
+        return filename.stem
+
+
 def compute_peaks(image, threshold_val=80, blur_sigma=1, region_size=7):
 
     # remove noise in image
@@ -228,11 +237,7 @@ def line_test(args):
     model = load_model_for_eval(args.model)
     if model is None:
         return
-    model_file = Path(args.model)
-    if model_file.is_symlink():
-        model_name = Path(os.readlink(model_file)).stem
-    else:
-        model_name = model_file.stem
+    model_name = get_file_name(args.model)
 
     params = cnn_image_parameters()
 
@@ -274,11 +279,7 @@ def circle_test(args):
     model = load_model_for_eval(args.model)
     if model is None:
         return
-    model_file = Path(args.model)
-    if model_file.is_symlink():
-        model_name = Path(os.readlink(model_file)).stem
-    else:
-        model_name = model_file.stem
+    model_name = get_file_name(args.model)
 
     params = cnn_image_parameters()
 
