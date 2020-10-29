@@ -345,6 +345,9 @@ def train_main(args):
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size,
                                   shuffle=True, num_workers=cpus)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=cpus)
+    dataset_names = '\n'.join(args.dataset)
+    print(f'training on the following dataset(s):')
+    print(f'{dataset_names}')
 
     # training params
 
@@ -368,7 +371,7 @@ def train_main(args):
     # train network
 
     logger = pl_loggers.TensorBoardLogger('runs/', name='')
-    trainer = pl.Trainer(logger=logger, max_epochs=args.epochs, weights_summary='full', gpus=gpus)
+    trainer = pl.Trainer(logger=logger, max_epochs=args.epochs, weights_summary='top', gpus=gpus)
     trainer.fit(model, train_dataloader, val_dataloader)
 
 
