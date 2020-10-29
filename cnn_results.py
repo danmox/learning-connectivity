@@ -282,7 +282,7 @@ def circle_test(args):
 
     params = cnn_image_parameters()
 
-    task_agents = 4
+    task_agents = 3 if args.agents is None else args.agents
     min_rad = (params['comm_range']+2.0) / (2.0 * np.sin(np.pi/task_agents))
     rads = np.linspace(min_rad, 60, 15)
     for i, rad in enumerate(rads):
@@ -312,7 +312,7 @@ def circle_test(args):
         plt.tight_layout()
 
         if args.save:
-            filename = f'circle_{i:02d}_{model_name}.png'
+            filename = f'circle_{i:02d}_agents_{task_agents}_{model_name}.png'
             plt.savefig(filename, dpi=150)
             print(f'saved image {filename}')
         else:
@@ -555,6 +555,7 @@ if __name__ == '__main__':
     circ_parser.add_argument('model', type=str, help='model to test')
     circ_parser.add_argument('--save', action='store_true')
     circ_parser.add_argument('--view', action='store_true', help='turn on debugging plots')
+    circ_parser.add_argument('--agents', type=int, help='number of agents in the circle')
 
     extrema_parser = subparsers.add_parser('extrema', help='show examples where the provided model performs well/poorly on the given dataset')
     extrema_parser.add_argument('model', type=str, help='model to test')
