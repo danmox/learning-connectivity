@@ -17,6 +17,7 @@ import torch
 from hdf5_dataset_utils import ConnectivityDataset
 import h5py
 from scipy.spatial import Voronoi, Delaunay
+import os
 
 
 def compute_peaks(image, threshold_val=80, blur_sigma=1, region_size=7):
@@ -227,12 +228,17 @@ def line_test(args):
     model = load_model_for_eval(args.model)
     if model is None:
         return
+    model_file = Path(args.model)
+    if model_file.is_symlink():
+        model_name = Path(os.readlink(model_file)).stem
+    else:
+        model_name = model_file.stem
 
     params = cnn_image_parameters()
 
     start_config = np.asarray([[20., 0.], [-20., 0.]])
     step = 2*np.asarray([[1., 0.],[-1., 0.]])
-    for i in range(20):
+    for i in range(22):
         task_config = start_config + i*step
         img = kernelized_config_img(task_config, params)
         out = model.inference(img)
@@ -256,7 +262,7 @@ def line_test(args):
         plt.tight_layout()
 
         if args.save:
-            filename = f'line_{i:02d}_{model_file.stem}.png'
+            filename = f'line_{i:02d}_{model_name}.png'
             plt.savefig(filename, dpi=150)
             print(f'saved image {filename}')
         else:
@@ -268,6 +274,11 @@ def circle_test(args):
     model = load_model_for_eval(args.model)
     if model is None:
         return
+    model_file = Path(args.model)
+    if model_file.is_symlink():
+        model_name = Path(os.readlink(model_file)).stem
+    else:
+        model_name = model_file.stem
 
     params = cnn_image_parameters()
 
@@ -301,7 +312,7 @@ def circle_test(args):
         plt.tight_layout()
 
         if args.save:
-            filename = f'line_{i:02d}_{model_file.stem}.png'
+            filename = f'circle_{i:02d}_{model_name}.png'
             plt.savefig(filename, dpi=150)
             print(f'saved image {filename}')
         else:
