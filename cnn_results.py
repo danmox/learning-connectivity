@@ -435,7 +435,7 @@ def connectivity_test(args):
     hdf5_file.close()
 
 
-def stats_test(args):
+def compute_stats_test(args):
 
     model = load_model_for_eval(args.model)
     if model is None:
@@ -469,6 +469,15 @@ def stats_test(args):
         cnn_connectivity[i], _ = connectivity_from_image(task_config, model_image, p)
     print(f'processed {dataset_len} test samples in {dataset_file.name}')
 
+    if not args.nosave:
+        suffix = f'_{dataset_len}_samples_{model_name}_{dataset_file.stem}'
+        np.save('opt_connectivity' + suffix, opt_connectivity)
+        np.save('cnn_connectivity' + suffix, cnn_connectivity)
+        for name in ('opt_connectivity', 'cnn_connectivity'):
+            print(f'saved data to {name}{suffix}.npy')
+    else:
+        print(f'NOT saving data')
+
     eps = 1e-10
     opt_feasible = opt_connectivity > eps
     cnn_feasible = cnn_connectivity > eps
@@ -481,21 +490,48 @@ def stats_test(args):
     absolute_error = opt_connectivity[both_feasible] - cnn_connectivity[both_feasible]
     percent_error = absolute_error / opt_connectivity[both_feasible]
 
-    if args.save:
-        suffix = f'_{dataset_len}_samples_{model_name}_{dataset_file.stem}'
-        np.save('opt_connectivity' + suffix, opt_connectivity)
-        np.save('cnn_connectivity' + suffix, cnn_connectivity)
-        for name in ('opt_connectivity', 'cnn_connectivity'):
-            print(f'saved data to {name}{suffix}.npy')
-
     print(f'{np.sum(opt_feasible)}/{dataset_len} feasible with optimization')
     print(f'{np.sum(cnn_feasible)}/{dataset_len} feasible with CNN')
     print(f'{np.sum(cnn_feasible & ~opt_feasible)} cases where only the CNN was feasible')
     print(f'{better.shape[0]} cases where the CNN performed better')
     if better.shape[0] > 0:
-        print(f'    some samples: {", ".join(map(str, better[:min(20, better.shape[0])]))}')
-    print(f'absolute error: mean = {100*np.mean(absolute_error):.2f}, std = {100*np.std(absolute_error):.2f}')
-    print(f'percent error:  mean = {100*np.mean(percent_error):.2f}, std = {100*np.std(percent_error):.2f}')
+        print(f'    some samples: {", ".join(map(str, better[:min(5, better.shape[0])]))}')
+    print(f'absolute error: mean = {np.mean(absolute_error):.2f}, std = {np.std(absolute_error):.2f}')
+    print(f'percent error:  mean = {100*np.mean(percent_error):.2f}%, std = {100*np.std(percent_error):.2f}%')
+
+
+def parse_stats_test(args):
+
+    opt_file = Path(args.opt_stats)
+    cnn_file = Path(args.cnn_stats)
+    for stats_file in (opt_file, cnn_file):
+        if not stats_file.exists():
+            print(f'{stats_file} does not exist')
+            return
+    opt_connectivity = np.load(opt_file)
+    cnn_connectivity = np.load(cnn_file)
+    samples = opt_connectivity.shape[0]
+
+    eps = 1e-10
+    opt_feasible = opt_connectivity > eps
+    cnn_feasible = cnn_connectivity > eps
+    both_feasible = opt_feasible & cnn_feasible
+
+    # sometimes the CNN performs better
+    better = np.where(cnn_connectivity > opt_connectivity)[0]
+    better = better[cnn_feasible[better]]
+
+    absolute_error = opt_connectivity[both_feasible] - cnn_connectivity[both_feasible]
+    percent_error = absolute_error / opt_connectivity[both_feasible]
+
+    print(f'{np.sum(opt_feasible)}/{samples} feasible with optimization')
+    print(f'{np.sum(cnn_feasible)}/{samples} feasible with CNN')
+    print(f'{np.sum(cnn_feasible & ~opt_feasible)} cases where only the CNN was feasible')
+    print(f'{better.shape[0]} cases where the CNN performed better')
+    if better.shape[0] > 0:
+        print(f'    some samples: {", ".join(map(str, better[:min(5, better.shape[0])]))}')
+    print(f'absolute error: mean = {np.mean(absolute_error):.2f}, std = {np.std(absolute_error):.2f}')
+    print(f'percent error:  mean = {100*np.mean(percent_error):.2f}%, std = {100*np.std(percent_error):.2f}%')
 
 
 def variation_test(args):
@@ -590,12 +626,17 @@ if __name__ == '__main__':
     conn_parser.add_argument('--save', action='store_true')
     conn_parser.add_argument('--train', action='store_true', help='draw sample from training data')
 
-    stats_parser = subparsers.add_parser('stats', help='compute performance statistics for a dataset')
-    stats_parser.add_argument('model', type=str, help='model')
-    stats_parser.add_argument('dataset', type=str, help='test dataset')
-    stats_parser.add_argument('--train', action='store_true', help='run stats on training data partition')
-    stats_parser.add_argument('--samples', type=int, help='number of samples to process')
-    stats_parser.add_argument('--save', action='store_true', help='save connectivity data')
+    comp_stats_parser = subparsers.add_parser('compute_stats', help='compute performance statistics for a dataset')
+    comp_stats_parser.add_argument('model', type=str, help='model')
+    comp_stats_parser.add_argument('dataset', type=str, help='test dataset')
+    comp_stats_parser.add_argument('--train', action='store_true', help='run stats on training data partition')
+    comp_stats_parser.add_argument('--samples', type=int, help='number of samples to process; if omitted all samples in the dataset will be used')
+    comp_stats_parser.add_argument('--nosave', action='store_true', help='don\'t save connectivity data')
+
+    parse_stats_parser = subparsers.add_parser('parse_stats', help='parse performance statistics saved by compute_stats')
+    parse_stats_parser.add_argument('opt_stats', type=str, help='opt_connectivity... file')
+    parse_stats_parser.add_argument('cnn_stats', type=str, help='cnn_connectivity... file')
+    parse_stats_parser.add_argument('--save', action='store_true')
 
     var_parser = subparsers.add_parser('variation', help='show variation in model outputs')
     var_parser.add_argument('model', type=str, help='model')
@@ -615,7 +656,9 @@ if __name__ == '__main__':
         segment_test(args)
     elif args.command == 'connectivity':
         connectivity_test(args)
-    elif args.command == 'stats':
-        stats_test(args)
+    elif args.command == 'compute_stats':
+        compute_stats_test(args)
+    elif args.command == 'parse_stats':
+        parse_stats_test(args)
     elif args.command == 'variation':
         variation_test(args)
