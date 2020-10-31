@@ -1,4 +1,3 @@
-import pytorch_lightning as pl
 from pathlib import Path
 from hdf5_dataset_utils import kernelized_config_img, subs_to_pos, pos_to_subs
 from hdf5_dataset_utils import cnn_image_parameters, plot_image
@@ -18,6 +17,8 @@ from hdf5_dataset_utils import ConnectivityDataset
 import h5py
 from scipy.spatial import Voronoi, Delaunay
 import os
+from feasibility import adaptive_bbx, min_feasible_sample
+import time
 
 
 def get_file_name(filename):
@@ -423,6 +424,7 @@ def connectivity_test(args):
     ax.legend(loc='best', fontsize=14)
     ax.set_title(f'{idx}: opt. = {opt_conn:.3f}, cnn = {cnn_conn:.3f}', fontsize=18)
     ax.tick_params(axis='both', which='major', labelsize=16)
+    plt.tight_layout()
 
     if not args.save:
         print(f'showing sample {idx} from {dataset_file.name}')
@@ -496,7 +498,7 @@ def compute_stats_test(args):
     print(f'{better.shape[0]} cases where the CNN performed better')
     if better.shape[0] > 0:
         print(f'    some samples: {", ".join(map(str, better[:min(5, better.shape[0])]))}')
-    print(f'absolute error: mean = {np.mean(absolute_error):.2f}, std = {np.std(absolute_error):.2f}')
+    print(f'absolute error: mean = {np.mean(absolute_error):.4f}, std = {np.std(absolute_error):.4f}')
     print(f'percent error:  mean = {100*np.mean(percent_error):.2f}%, std = {100*np.std(percent_error):.2f}%')
 
 
@@ -530,7 +532,7 @@ def parse_stats_test(args):
     print(f'{better.shape[0]} cases where the CNN performed better')
     if better.shape[0] > 0:
         print(f'    some samples: {", ".join(map(str, better[:min(5, better.shape[0])]))}')
-    print(f'absolute error: mean = {np.mean(absolute_error):.2f}, std = {np.std(absolute_error):.2f}')
+    print(f'absolute error: mean = {np.mean(absolute_error):.4f}, std = {np.std(absolute_error):.4f}')
     print(f'percent error:  mean = {100*np.mean(percent_error):.2f}%, std = {100*np.std(percent_error):.2f}%')
 
 
@@ -593,6 +595,67 @@ def variation_test(args):
     # plt.show()
 
 
+def time_test(args):
+
+    model = load_model_for_eval(args.model)
+    if model is None:
+        return
+    model_name = get_file_name(args.model)
+
+    min_agents = 3
+    max_agents = 13
+    team_sizes = np.arange(min_agents, max_agents+1)
+    samples = 10
+
+    params = cnn_image_parameters()
+
+    cnn_time = np.zeros((team_sizes.shape[0], samples))
+    opt_time = np.zeros_like(cnn_time)
+
+    for team_idx, total_agents in enumerate(team_sizes):
+
+        for sample_idx in range(samples):
+
+            # generate sample with fixed number of agents
+            task_agents = ceil(total_agents / 2.0)
+            bbx = adaptive_bbx(task_agents, params['comm_range'])
+            while True:
+                x_task, x_comm = min_feasible_sample(task_agents, params['comm_range'], bbx)
+                if x_task.shape[0] + x_comm.shape[0] == total_agents:
+                    break
+            input_image = kernelized_config_img(x_task, params)
+
+            print(f'\rtiming sample {sample_idx}/{samples} for team {total_agents} agent team\r', end="")
+
+            # run CNN
+            t0 = time.time()
+            cnn_image = model.inference(input_image)
+            connectivity_from_image(x_task, cnn_image, params)
+            dt = time.time() - t0
+            cnn_time[team_idx, sample_idx] = dt
+
+            # run optimization
+            opt = ConnOpt(params['channel_model'], x_task, x_comm)
+            t0 = time.time()
+            opt.maximize_connectivity(max_its=20)
+            dt = time.time() - t0
+            opt_time[team_idx, sample_idx] = dt
+
+    # computation time with error bars
+    fig, ax = plt.subplots()
+    ax.errorbar(team_sizes, np.mean(cnn_time, axis=1), yerr=np.std(cnn_time, axis=1),
+                color='r', lw=2, label='CNN')
+    ax.errorbar(team_sizes, np.mean(opt_time, axis=1), yerr=np.std(opt_time, axis=1),
+                color='b', lw=2, label='opt')
+    ax.set_xlabel('total agents', fontsize=16)
+    ax.set_ylabel('computation time (s)', fontsize=16)
+    ax.set_xticks(team_sizes[::2])
+    ax.tick_params(axis='both', which='major', labelsize=16)
+    ax.legend(loc='upper left', fontsize=16)
+    plt.tight_layout()
+    plt.show()
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='CNN network tests')
     subparsers = parser.add_subparsers(dest='command', required=True)
@@ -643,6 +706,9 @@ if __name__ == '__main__':
     var_parser.add_argument('dataset', type=str, help='test dataset')
     var_parser.add_argument('--sample', type=int, help='sample to test')
 
+    time_parser = subparsers.add_parser('time', help='compare CNN inference time with optimization time')
+    time_parser.add_argument('model', type=str, help='model')
+
     mpl.rcParams['figure.dpi'] = 150
 
     args = parser.parse_args()
@@ -662,3 +728,5 @@ if __name__ == '__main__':
         parse_stats_test(args)
     elif args.command == 'variation':
         variation_test(args)
+    elif args.command == 'time':
+        time_test(args)
