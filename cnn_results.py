@@ -643,6 +643,10 @@ def time_test(args):
 
     # computation time with error bars
     fig, ax = plt.subplots()
+    print('cnn mean times:')
+    print(np.mean(cnn_time, axis=1))
+    print('opt mean times:')
+    print(np.mean(opt_time, axis=1))
     ax.errorbar(team_sizes, np.mean(cnn_time, axis=1), yerr=np.std(cnn_time, axis=1),
                 color='r', lw=2, label='CNN')
     ax.errorbar(team_sizes, np.mean(opt_time, axis=1), yerr=np.std(opt_time, axis=1),
