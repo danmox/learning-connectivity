@@ -603,7 +603,7 @@ def time_test(args):
     model_name = get_file_name(args.model)
 
     min_agents = 3
-    max_agents = 13
+    max_agents = 18
     team_sizes = np.arange(min_agents, max_agents+1)
     samples = 10
 
