@@ -278,7 +278,8 @@ def line_test(args):
         if args.save:
             filename = f'line_{i:02d}_{model_name}.png'
             plt.savefig(filename, dpi=150)
-            print(f'saved image {filename}')
+            np.save(filename[:-4], out)
+            print(f'saved image and array {filename[:-3]+"{png,npy}"}')
         else:
             plt.show()
 
@@ -324,7 +325,8 @@ def circle_test(args):
         if args.save:
             filename = f'circle_{i:02d}_agents_{task_agents}_{model_name}.png'
             plt.savefig(filename, dpi=150)
-            print(f'saved image {filename}')
+            np.save(filename[:-4], out)
+            print(f'saved image and array {filename[:-3]+"{png,npy}"}')
         else:
             plt.show()
 
