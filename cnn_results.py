@@ -30,7 +30,7 @@ def get_file_name(filename):
         return filename.stem
 
 
-def compute_peaks(image, threshold_val=80, blur_sigma=1, region_size=7):
+def compute_peaks(image, threshold_val=80, blur_sigma=1, region_size=7, view=False):
 
     # remove noise in image
     blurred_img = gaussian(image, sigma=blur_sigma)
@@ -58,6 +58,14 @@ def compute_peaks(image, threshold_val=80, blur_sigma=1, region_size=7):
             near_peaks.append(i)
             out_peaks = np.vstack((out_peaks, np.mean(peaks[near_peaks], axis=0)))
             used[near_peaks] = True
+
+    if view:
+        fig, ax = plt.subplots()
+        ax.plot(peaks[:,0], peaks[:,1], 'ro')
+        ax.imshow(blurred_img.T)
+        ax.invert_yaxis()
+        plt.show()
+
 
     return peaks
 
@@ -120,13 +128,13 @@ def compute_coverage(image, params, viz=False):
         if threshold < 0:
             return np.zeros((0,2))
 
-        config_subs = compute_peaks(image, threshold_val=threshold)
+        config_subs = compute_peaks(image, threshold_val=threshold, view=viz)
         if config_subs.shape[0] == 0:
             threshold -= 20
             continue
 
         config = subs_to_pos(params['meters_per_pixel'], params['img_size'][0], config_subs)
-        config_subs = compute_peaks(image, threshold_val=0)
+        config_subs = compute_peaks(image, threshold_val=0, view=viz)
 
         break
 
@@ -169,8 +177,8 @@ def compute_coverage(image, params, viz=False):
 
         if viz:
             p = mpl.collections.PatchCollection(cell_patches, alpha=0.2)
-            p.set_array(np.arange(len(cell_patches)))
-            p.set_cmap('tab10')
+            p.set_array(np.arange(len(cell_patches))*255/(len(cell_patches)-1))
+            p.set_cmap('jet')
 
             fig, ax = plt.subplots()
             plot_image(image, params, ax)
