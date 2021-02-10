@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import numpy as np
 from socp.channel_model import PiecewisePathLossModel, PathLossModel, LinearModel
 from socp.rr_socp_tests import plot_config, numpy_to_ros
@@ -8,6 +9,7 @@ from math import pi
 import cvxpy as cp
 from scipy.linalg import null_space
 import time as systime
+mpl.rcParams['figure.dpi'] = 100
 
 
 def circle_points(rad, num_points):
@@ -63,24 +65,35 @@ def conn_max_test():
     # x_task = circle_points(20, team_size)
     # x_comm = circle_points(18, team_size)
 
-    task_agents = np.random.randint(3, 10)
+    # task_agents = np.random.randint(3, 10)
+    task_agents = 6
     comm_range = 30-1  # the channel model is 0.0 at 30m
-    bbx = adaptive_bbx(task_agents, comm_range, 1.0)
+    bbx = adaptive_bbx(task_agents, comm_range, 0.7)
     x_task, x_comm = min_feasible_sample(task_agents, comm_range, bbx)
 
     cm = PiecewisePathLossModel(print_values=False)
     # cm = PathLossModel(print_values=False)
     # cm = LinearChannel(max_range=comm_range)
     co = ConnectivityOpt(cm, x_task, x_comm)
-
-    init_rates, _ = cm.predict(co.config)
-    plot_config(co.config, task_ids=range(task_agents), rates=init_rates)
+    init_config = np.copy(co.config)
 
     co.maximize_connectivity(init_step_size=0.5, min_step_size=0.01,
-                             m_tol=1e-6, h_tol=1e-5, viz=True)
+                             m_tol=1e-6, h_tol=1e-5, viz=False)
+
+    init_rates, _ = cm.predict(x_task)
+    plot_config(x_task, task_ids=range(task_agents), rates=init_rates, show=False)
+    plt.savefig('co1.png', dpi=150)
+    plt.show()
+
+    init_rates, _ = cm.predict(init_config)
+    plot_config(init_config, task_ids=range(task_agents), rates=init_rates, show=False)
+    plt.savefig('co2.png', dpi=150)
+    plt.show()
 
     team_rates, _ = cm.predict(co.config)
-    plot_config(co.config, task_ids=range(task_agents), rates=team_rates)
+    plot_config(co.config, task_ids=range(task_agents), rates=team_rates, show=False)
+    plt.savefig('co3.png', dpi=150)
+    plt.show()
 
 
 def scale_test():
