@@ -125,9 +125,9 @@ def scale_test():
             worker(x_task, x_comm, it_time_avg, it_time_std, trial_times, trial_its, j)
 
         # co = ConnectivityOpt(x_task, x_comm)
-        # plot_config(numpy_to_ros(co.config), show=True)
+        # plot_config(co.config, show=True)
         # co.maximize_connectivity()
-        # plot_config(numpy_to_ros(co.config), show=True)
+        # plot_config(co.config, show=True)
 
         print(trial_times)
         print(trial_its)
