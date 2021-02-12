@@ -1,0 +1,3 @@
+[submodule "mid"]
+	path = mid
+	url = git@github.com:danmox/mid.git

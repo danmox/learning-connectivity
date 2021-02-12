@@ -1,9 +1,9 @@
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
-from connectivity_planner.channel_model import PiecewisePathLossModel
-from connectivity_planner.utils import plot_config
-from connectivity_planner.connectivity_optimization import ConnectivityOpt
+from mid.connectivity_planner.src.connectivity_planner.channel_model import PiecewisePathLossModel
+from mid.connectivity_planner.src.connectivity_planner.utils import plot_config
+from mid.connectivity_planner.src.connectivity_planner.connectivity_optimization import ConnectivityOpt
 from feasibility import adaptive_bbx, min_feasible_sample
 from math import pi
 import time as systime

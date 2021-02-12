@@ -10,7 +10,7 @@ import numpy as np
 from skimage.filters.thresholding import threshold_local
 from skimage.filters import gaussian
 from connectivity_maximization import circle_points
-from connectivity_planner.connectivity_optimization import ConnectivityOpt as ConnOpt, round_sf
+from mid.connectivity_planner.src.connectivity_planner.connectivity_optimization import ConnectivityOpt as ConnOpt, round_sf
 from feasibility import connect_graph
 import torch
 from hdf5_dataset_utils import ConnectivityDataset

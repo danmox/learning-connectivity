@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
-from connectivity_planner.utils import plot_config
+from mid.connectivity_planner.src.connectivity_planner.utils import plot_config
 from scipy import spatial
 from scipy.sparse.csgraph import minimum_spanning_tree
 from math import ceil, floor
