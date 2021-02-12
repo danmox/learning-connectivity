@@ -1,8 +1,8 @@
 from pathlib import Path
-from hdf5_dataset_utils import kernelized_config_img, subs_to_pos, pos_to_subs
+from hdf5_dataset_utils import kernelized_config_img, subs_to_pos
 from hdf5_dataset_utils import cnn_image_parameters, plot_image
-from math import ceil, sqrt
-from cnn import BetaVAEModel, load_model_for_eval
+from math import ceil
+from cnn import load_model_for_eval
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import argparse

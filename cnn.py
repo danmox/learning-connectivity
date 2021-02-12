@@ -13,7 +13,6 @@ from torch.autograd import Variable
 import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
-from datetime import datetime
 import argparse
 import os
 from math import ceil

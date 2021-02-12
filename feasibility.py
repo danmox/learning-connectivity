@@ -1,9 +1,7 @@
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
-from connectivity_planner.channel_model import PiecewisePathLossModel, PathLossModel, LinearModel
-from connectivity_planner.utils import plot_config, numpy_to_ros
-from connectivity_planner.connectivity_optimization import ConnectivityOpt
+from connectivity_planner.utils import plot_config
 from scipy import spatial
 from scipy.sparse.csgraph import minimum_spanning_tree
 from math import ceil, floor

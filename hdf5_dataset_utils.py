@@ -3,16 +3,12 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-import scipy.misc
 from scipy.stats import norm
 from pathlib import Path
 import shutil
-import os
-import inspect
 import time
 import datetime
 import h5py
-import json
 import argparse
 from multiprocessing import Queue, Process, cpu_count
 import shutil
@@ -21,7 +17,7 @@ import torch
 from torch.utils.data import Dataset
 
 from connectivity_planner.connectivity_optimization import ConnectivityOpt as ConnOpt
-from connectivity_planner.channel_model import PiecewisePathLossModel, PathLossModel
+from connectivity_planner.channel_model import PiecewisePathLossModel
 from feasibility import adaptive_bbx, min_feasible_sample
 
 
