@@ -41,37 +41,25 @@ def compute_peaks(image, threshold_val=80, blur_sigma=1, region_size=7, view=Fal
     peaks = np.argwhere(blurred_img >= thresh_mask)
 
     # only pixels above a threshold value should be considered peaks
-    peaks = peaks[image[peaks[:,0], peaks[:,1]] > threshold_val]
-
-    # form list of unique peaks, averaging any that are near each other
+    # NOTE in rare cases no peaks with intensity greater than 80 are found in
+    # the image, so walk back the threshold until one is found
     out_peaks = np.zeros((0,2))
-    used = np.zeros((peaks.shape[0],), dtype=bool)
-    for i in range(peaks.shape[0]-1):
-        if used[i]:
-            continue
-        near_peaks = np.where(np.linalg.norm(peaks[i+1:] - peaks[i], axis=1) < 4)[0].tolist()
-        if len(near_peaks) == 0:
-            out_peaks = np.vstack((out_peaks, peaks[i]))
-            used[i] = True
-        else:
-            import pdb;pdb.set_trace()
-            near_peaks.append(i)
-            out_peaks = np.vstack((out_peaks, np.mean(peaks[near_peaks], axis=0)))
-            used[near_peaks] = True
+    while threshold_val > 0 and out_peaks.shape[0] == 0:
+        out_peaks = peaks[image[peaks[:,0], peaks[:,1]] > threshold_val]
+        threshold_val -= 20
 
     if view:
         fig, ax = plt.subplots()
-        ax.plot(peaks[:,0], peaks[:,1], 'ro')
+        ax.plot(out_peaks[:,0], out_peaks[:,1], 'ro')
         ax.imshow(blurred_img.T)
         ax.invert_yaxis()
         plt.show()
 
-
-    return peaks
+    return out_peaks
 
 
 def connectivity_from_image(task_config, image, p, viz=False):
-    coverage_config = compute_coverage(image, p, viz)
+    coverage_config = compute_coverage(image, p, viz=viz)
     connectivity = ConnOpt.connectivity(p['channel_model'], task_config, coverage_config)
     return connectivity, coverage_config
 
@@ -115,29 +103,12 @@ def compute_voronoi(pts, bbx):
 
 
 def compute_coverage(image, params, viz=False):
-    """compute coverage with N agents using Lloyd's Algorithm"""
+    """compute coverage using Lloyd's Algorithm"""
 
     # extract peaks of intensity image
 
-    # NOTE in rare cases no peaks with intensity greater than 80 are found in
-    # the image, so walk back the threshold until one is found
-    threshold = 60
-    while True:
-
-        # blank CNN output -> node positions are arbitrary
-        if threshold < 0:
-            return np.zeros((0,2))
-
-        config_subs = compute_peaks(image, threshold_val=threshold, view=viz)
-        if config_subs.shape[0] == 0:
-            threshold -= 20
-            continue
-
-        config = subs_to_pos(params['meters_per_pixel'], params['img_size'][0], config_subs)
-        config_subs = compute_peaks(image, threshold_val=0, view=viz)
-
-        break
-
+    config_subs = compute_peaks(image, threshold_val=60, view=viz)
+    config = subs_to_pos(params['meters_per_pixel'], params['img_size'][0], config_subs)
     peaks = np.copy(config)
 
     # Lloyd's algorithm
