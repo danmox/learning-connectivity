@@ -11,6 +11,7 @@ from skimage.filters.thresholding import threshold_local
 from skimage.filters import gaussian
 from connectivity_maximization import circle_points
 from mid.connectivity_planner.src.connectivity_planner.connectivity_optimization import ConnectivityOpt as ConnOpt, round_sf
+from mid.connectivity_planner.src.connectivity_planner.channel_model import PiecewisePathLossModel
 from feasibility import connect_graph
 import torch
 from hdf5_dataset_utils import ConnectivityDataset
@@ -58,10 +59,19 @@ def compute_peaks(image, threshold_val=80, blur_sigma=1, region_size=7, view=Fal
     return out_peaks
 
 
-def connectivity_from_image(task_config, image, p, viz=False):
+def connectivity_from_image(task_config, image, p, viz=False, variable_power=False):
     coverage_config = compute_coverage(image, p, viz=viz)
     connectivity = ConnOpt.connectivity(p['channel_model'], task_config, coverage_config)
-    return connectivity, coverage_config
+
+    if variable_power and connectivity < 1e-6:
+        L0 = p['channel_model'].L0 + 0.2 # increase transmit power
+        while connectivity < 1e-6:
+            cm = PiecewisePathLossModel(print_values=False, l0=L0)
+            connectivity = ConnOpt.connectivity(cm, task_config, coverage_config)
+            L0 += 0.2
+        return connectivity, coverage_config, L0
+
+    return connectivity, coverage_config, p['channel_model'].L0
 
 
 def connectivity_from_config(task_config, p, viz=False):
@@ -228,7 +238,7 @@ def line_test(args):
         img = kernelized_config_img(task_config, params)
         out = model.inference(img)
 
-        cnn_conn, cnn_config = connectivity_from_image(task_config, out, params)
+        cnn_conn, cnn_config, _ = connectivity_from_image(task_config, out, params)
         opt_conn, opt_config = connectivity_from_config(task_config, params)
 
         fig, ax = plt.subplots()
@@ -272,7 +282,7 @@ def circle_test(args):
         img = kernelized_config_img(task_config, params)
         out = model.inference(img)
 
-        cnn_conn, cnn_config = connectivity_from_image(task_config, out, params, viz=args.view)
+        cnn_conn, cnn_config, _ = connectivity_from_image(task_config, out, params, viz=args.view)
         opt_conn, opt_config = connectivity_from_config(task_config, params, viz=args.view)
         print(f'it {i+1:2d}: rad = {rad:.1f}m, cnn # = {cnn_config.shape[0]}, '
               f'cnn conn = {cnn_conn:.4f}, opt # = {opt_config.shape[0]}, '
@@ -394,7 +404,8 @@ def connectivity_test(args):
 
     params = cnn_image_parameters()
 
-    cnn_conn, cnn_config = connectivity_from_image(task_config, model_image, params)
+    L0_default = params['channel_model'].L0
+    cnn_conn, cnn_config, L0 = connectivity_from_image(task_config, model_image, params, variable_power=True)
 
     ax = plt.subplot()
     plot_image(np.maximum(input_image, model_image), params, ax)
@@ -403,7 +414,7 @@ def connectivity_test(args):
     ax.plot(cnn_config[:,0], cnn_config[:,1], 'bx', label=f'CNN ({cnn_config.shape[0]})', ms=9, mew=3)
     ax.set_yticks(np.arange(-80, 80, 20))
     ax.legend(loc='best', fontsize=14)
-    ax.set_title(f'{idx}: opt. = {opt_conn:.3f}, cnn = {cnn_conn:.3f}', fontsize=18)
+    ax.set_title(f'{idx}: opt. = {opt_conn:.3f} ({L0_default:.1f}), cnn = {cnn_conn:.3f} ({L0:.1f})', fontsize=18)
     ax.tick_params(axis='both', which='major', labelsize=16)
     plt.tight_layout()
 
@@ -449,7 +460,7 @@ def compute_stats_test(args):
         print(f'\rprocessing sample {i+1} of {dataset_len}\r', end="")
         model_image = model.inference(hdf5_file[mode]['task_img'][i,...])
         task_config = hdf5_file[mode]['task_config'][i,...]
-        cnn_connectivity[i], _ = connectivity_from_image(task_config, model_image, p)
+        cnn_connectivity[i], _, _ = connectivity_from_image(task_config, model_image, p)
     print(f'processed {dataset_len} test samples in {dataset_file.name}')
 
     if not args.nosave:
