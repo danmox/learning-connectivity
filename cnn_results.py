@@ -236,21 +236,24 @@ def line_test(args):
         img = kernelized_config_img(task_config, params)
         out = model.inference(img)
 
-        cnn_conn, cnn_config, _ = connectivity_from_image(task_config, out, params)
+        cnn_conn, cnn_config, cnn_L0 = connectivity_from_image(task_config, out, params, variable_power=True)
         opt_conn, opt_config = connectivity_from_config(task_config, params)
 
         fig, ax = plt.subplots()
 
         plot_image(np.maximum(out, img), params, ax)
         ax.plot(task_config[:,0], task_config[:,1], 'ro', label='task')
-        ax.plot(opt_config[:,0], opt_config[:,1], 'rx', label='comm. opt.', ms=9, mew=3)
-        ax.plot(cnn_config[:,0], cnn_config[:,1], 'bx', label='comm. CNN', ms=9, mew=3)
+        ax.plot(opt_config[:,0], opt_config[:,1], 'rx', label=f'opt ({opt_config.shape[0]})', ms=9, mew=3)
+        ax.plot(cnn_config[:,0], cnn_config[:,1], 'bx', label=f'CNN ({cnn_config.shape[0]})', ms=9, mew=3)
 
         ax.set_yticks(np.arange(-80, 80, 20))
         ax.tick_params(axis='both', which='major', labelsize=16)
 
         ax.legend(loc='best', fontsize=14)
-        ax.set_title(f'opt. = {opt_conn:.3f}, cnn = {cnn_conn:.3f}', fontsize=18)
+
+        pwr_diff = cnn_L0 - params['channel_model'].L0
+        pwr_str = 'DEF' if pwr_diff < 0.01 else f'+{pwr_diff:.1f} dBm'
+        ax.set_title(f'opt. ({opt_conn:.3f}, DEF), CNN ({cnn_conn:.3f}, {pwr_str})', fontsize=18)
 
         plt.tight_layout()
 
@@ -280,7 +283,8 @@ def circle_test(args):
         img = kernelized_config_img(task_config, params)
         out = model.inference(img)
 
-        cnn_conn, cnn_config, _ = connectivity_from_image(task_config, out, params, viz=args.view)
+        cnn_conn, cnn_config, cnn_L0 = connectivity_from_image(task_config, out, params, viz=args.view,
+                                                               variable_power=True)
         opt_conn, opt_config = connectivity_from_config(task_config, params, viz=args.view)
         print(f'it {i+1:2d}: rad = {rad:.1f}m, cnn # = {cnn_config.shape[0]}, '
               f'cnn conn = {cnn_conn:.4f}, opt # = {opt_config.shape[0]}, '
@@ -297,7 +301,10 @@ def circle_test(args):
         ax.tick_params(axis='both', which='major', labelsize=16)
 
         ax.legend(loc='best', fontsize=14)
-        ax.set_title(f'opt. = {opt_conn:.3f}, cnn = {cnn_conn:.3f}', fontsize=18)
+
+        pwr_diff = cnn_L0 - params['channel_model'].L0
+        pwr_str = 'DEF' if pwr_diff < 0.01 else f'+{pwr_diff:.1f} dBm'
+        ax.set_title(f'opt. ({opt_conn:.3f}, DEF), CNN ({cnn_conn:.3f}, {pwr_str})', fontsize=18)
 
         plt.tight_layout()
 
