@@ -418,8 +418,12 @@ def connectivity_test(args):
     ax.plot(cnn_config[:,0], cnn_config[:,1], 'bx', label=f'CNN ({cnn_config.shape[0]})', ms=9, mew=3)
     ax.set_yticks(np.arange(-80, 80, 20))
     ax.legend(loc='best', fontsize=14)
-    ax.set_title(f'{idx}: opt. = {opt_conn:.3f} ({L0_default:.1f}), cnn = {cnn_conn:.3f} ({L0:.1f})', fontsize=18)
     ax.tick_params(axis='both', which='major', labelsize=16)
+
+    pwr_diff = cnn_L0 - params['channel_model'].L0
+    pwr_str = 'DEF' if pwr_diff < 0.01 else f'+{pwr_diff:.1f} dBm'
+    ax.set_title(f'{idx}: opt. ({opt_conn:.3f}, DEF), CNN ({cnn_conn:.3f}, {pwr_str})', fontsize=14)
+
     plt.tight_layout()
 
     if not args.save:
