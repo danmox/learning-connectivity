@@ -59,7 +59,7 @@ def compute_peaks(image, threshold_val=80, blur_sigma=1, region_size=7, view=Fal
     return out_peaks
 
 
-def connectivity_from_image(task_config, image, p, viz=False, variable_power=False):
+def connectivity_from_image(task_config, image, p, viz=False, variable_power=True):
     coverage_config = compute_coverage(image, p, viz=viz)
     connectivity = ConnOpt.connectivity(p['channel_model'], task_config, coverage_config)
 
@@ -236,7 +236,7 @@ def line_test(args):
         img = kernelized_config_img(task_config, params)
         out = model.inference(img)
 
-        cnn_conn, cnn_config, cnn_L0 = connectivity_from_image(task_config, out, params, variable_power=True)
+        cnn_conn, cnn_config, cnn_L0 = connectivity_from_image(task_config, out, params)
         opt_conn, opt_config = connectivity_from_config(task_config, params)
 
         fig, ax = plt.subplots()
@@ -283,8 +283,7 @@ def circle_test(args):
         img = kernelized_config_img(task_config, params)
         out = model.inference(img)
 
-        cnn_conn, cnn_config, cnn_L0 = connectivity_from_image(task_config, out, params, viz=args.view,
-                                                               variable_power=True)
+        cnn_conn, cnn_config, cnn_L0 = connectivity_from_image(task_config, out, params, viz=args.view)
         opt_conn, opt_config = connectivity_from_config(task_config, params, viz=args.view)
         print(f'it {i+1:2d}: rad = {rad:.1f}m, cnn # = {cnn_config.shape[0]}, '
               f'cnn conn = {cnn_conn:.4f}, opt # = {opt_config.shape[0]}, '
@@ -410,7 +409,7 @@ def connectivity_test(args):
     params = cnn_image_parameters()
 
     L0_default = params['channel_model'].L0
-    cnn_conn, cnn_config, L0 = connectivity_from_image(task_config, model_image, params, variable_power=True)
+    cnn_conn, cnn_config, cnn_L0 = connectivity_from_image(task_config, model_image, params)
 
     ax = plt.subplot()
     plot_image(np.maximum(input_image, model_image), params, ax)
