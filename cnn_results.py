@@ -63,15 +63,13 @@ def connectivity_from_image(task_config, image, p, viz=False, variable_power=Fal
     coverage_config = compute_coverage(image, p, viz=viz)
     connectivity = ConnOpt.connectivity(p['channel_model'], task_config, coverage_config)
 
-    if variable_power and connectivity < 1e-6:
-        L0 = p['channel_model'].L0 + 0.2 # increase transmit power
-        while connectivity < 1e-6:
-            cm = PiecewisePathLossModel(print_values=False, l0=L0)
-            connectivity = ConnOpt.connectivity(cm, task_config, coverage_config)
-            L0 += 0.2
-        return connectivity, coverage_config, L0
+    L0 = p['channel_model'].L0
+    while variable_power and connectivity < 5e-4:
+        L0 += 0.2
+        cm = PiecewisePathLossModel(print_values=False, l0=L0)
+        connectivity = ConnOpt.connectivity(cm, task_config, coverage_config)
 
-    return connectivity, coverage_config, p['channel_model'].L0
+    return connectivity, coverage_config, L0
 
 
 def connectivity_from_config(task_config, p, viz=False):
