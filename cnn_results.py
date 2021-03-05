@@ -59,20 +59,40 @@ def compute_peaks(image, threshold_val=80, blur_sigma=1, region_size=7, view=Fal
     return out_peaks
 
 
-def connectivity_from_image(task_config, image, p, viz=False, variable_power=True):
-    coverage_config = compute_coverage(image, p, viz=viz)
-    connectivity = ConnOpt.connectivity(p['channel_model'], task_config, coverage_config)
+def connectivity_from_CNN(input_image, model, x_task, params, samples=1, viz=False, variable_power=True):
 
-    L0 = p['channel_model'].L0
-    while variable_power and connectivity < 5e-4:
-        L0 += 0.2
-        cm = PiecewisePathLossModel(print_values=False, l0=L0)
-        connectivity = ConnOpt.connectivity(cm, task_config, coverage_config)
+    conn = np.zeros((samples,))
+    power = np.zeros((samples,))
+    cnn_imgs = np.zeros((samples,) + input_image.shape, dtype=input_image.dtype)
+    agents = np.zeros((samples,), dtype=int)
+    x_comm = []
+    for i in range(samples):
 
-    return connectivity, coverage_config, L0
+        # run inference and extract the network team configuration
+        cnn_imgs[i] = model.inference(input_image)
+        x_comm += [compute_coverage(cnn_imgs[i], params, viz=viz)]
+        agents[i] = x_comm[i].shape[0]
+
+        # find connectivity
+        conn[i] = ConnOpt.connectivity(params['channel_model'], x_task, x_comm[i])
+
+        # increase transmit power until the network is connected
+        power[i] = params['channel_model'].L0
+        while variable_power and conn[i] < 5e-4:
+            power[i] += 0.2
+            cm = PiecewisePathLossModel(print_values=False, l0=power[i])
+            conn[i] = ConnOpt.connectivity(cm, x_task, x_comm[i])
+
+    # return the best result
+    # prioritize: lowest power > fewer agents > highest connectivity
+    mask = power == np.min(power)
+    mask &= agents == np.min(agents[mask])
+    best_idx = np.where(conn == np.max(conn[mask]))[0][0]
+
+    return conn[best_idx], x_comm[best_idx], power[best_idx], cnn_imgs[best_idx]
 
 
-def connectivity_from_config(task_config, p, viz=False):
+def connectivity_from_opt(task_config, p, viz=False):
     comm_config = connect_graph(task_config, p['comm_range'])
     opt = ConnOpt(p['channel_model'], task_config, comm_config)
     conn = opt.maximize_connectivity(viz=viz)
@@ -232,19 +252,18 @@ def line_test(args):
     start_config = np.asarray([[20., 0.], [-20., 0.]])
     step = 2*np.asarray([[1., 0.],[-1., 0.]])
     for i in range(22):
-        task_config = start_config + i*step
-        img = kernelized_config_img(task_config, params)
-        out = model.inference(img)
+        x_task = start_config + i*step
+        img = kernelized_config_img(x_task, params)
 
-        cnn_conn, cnn_config, cnn_L0 = connectivity_from_image(task_config, out, params)
-        opt_conn, opt_config = connectivity_from_config(task_config, params)
+        cnn_conn, x_cnn, cnn_L0, cnn_img = connectivity_from_CNN(img, model, x_task, params, args.draws)
+        opt_conn, x_opt = connectivity_from_opt(x_task, params)
 
         fig, ax = plt.subplots()
 
-        plot_image(np.maximum(out, img), params, ax)
-        ax.plot(task_config[:,0], task_config[:,1], 'ro', label='task')
-        ax.plot(opt_config[:,0], opt_config[:,1], 'rx', label=f'opt ({opt_config.shape[0]})', ms=9, mew=3)
-        ax.plot(cnn_config[:,0], cnn_config[:,1], 'bx', label=f'CNN ({cnn_config.shape[0]})', ms=9, mew=3)
+        plot_image(np.maximum(cnn_img, img), params, ax)
+        ax.plot(x_task[:,0], x_task[:,1], 'ro', label='task')
+        ax.plot(x_opt[:,0], x_opt[:,1], 'rx', label=f'opt ({x_opt.shape[0]})', ms=9, mew=3)
+        ax.plot(x_cnn[:,0], x_cnn[:,1], 'bx', label=f'CNN ({x_cnn.shape[0]})', ms=9, mew=3)
 
         ax.set_yticks(np.arange(-80, 80, 20))
         ax.tick_params(axis='both', which='major', labelsize=16)
@@ -260,7 +279,7 @@ def line_test(args):
         if args.save:
             filename = f'line_{i:02d}_{model_name}.png'
             plt.savefig(filename, dpi=150)
-            np.save(filename[:-4], out)
+            np.save(filename[:-4], cnn_img)
             print(f'saved image and array {filename[:-3]+"{png,npy}"}')
         else:
             plt.show()
@@ -276,25 +295,25 @@ def circle_test(args):
     params = cnn_image_parameters()
 
     task_agents = 3 if args.agents is None else args.agents
-    min_rad = (params['comm_range']+2.0) / (2.0 * np.sin(np.pi/task_agents))
+    min_rad = (params['comm_range']+2.0) / (2.0 * np.sin(np.pi / task_agents))
     rads = np.linspace(min_rad, 60, 15)
     for i, rad in enumerate(rads):
-        task_config = circle_points(rad, task_agents)
-        img = kernelized_config_img(task_config, params)
-        out = model.inference(img)
+        x_task = circle_points(rad, task_agents)
+        img = kernelized_config_img(x_task, params)
 
-        cnn_conn, cnn_config, cnn_L0 = connectivity_from_image(task_config, out, params, viz=args.view)
-        opt_conn, opt_config = connectivity_from_config(task_config, params, viz=args.view)
-        print(f'it {i+1:2d}: rad = {rad:.1f}m, cnn # = {cnn_config.shape[0]}, '
-              f'cnn conn = {cnn_conn:.4f}, opt # = {opt_config.shape[0]}, '
+        cnn_conn, x_cnn, cnn_L0, cnn_img = connectivity_from_CNN(img, model, x_task, params, args.draws)
+        opt_conn, x_opt = connectivity_from_opt(x_task, params)
+
+        print(f'it {i+1:2d}: rad = {rad:.1f}m, cnn # = {x_cnn.shape[0]}, '
+              f'cnn conn = {cnn_conn:.4f}, opt # = {x_opt.shape[0]}, '
               f'opt conn = {opt_conn:.4f}')
 
         fig, ax = plt.subplots()
 
-        plot_image(np.maximum(out, img), params, ax)
-        ax.plot(task_config[:,0], task_config[:,1], 'ro', label='task')
-        ax.plot(opt_config[:,0], opt_config[:,1], 'rx', label=f'opt ({opt_config.shape[0]})', ms=9, mew=3)
-        ax.plot(cnn_config[:,0], cnn_config[:,1], 'bx', label=f'CNN ({cnn_config.shape[0]})', ms=9, mew=3)
+        plot_image(np.maximum(cnn_img, img), params, ax)
+        ax.plot(x_task[:,0], x_task[:,1], 'ro', label='task')
+        ax.plot(x_opt[:,0], x_opt[:,1], 'rx', label=f'opt ({x_opt.shape[0]})', ms=9, mew=3)
+        ax.plot(x_cnn[:,0], x_cnn[:,1], 'bx', label=f'CNN ({x_cnn.shape[0]})', ms=9, mew=3)
 
         ax.set_yticks(np.arange(-80, 80, 20))
         ax.tick_params(axis='both', which='major', labelsize=16)
@@ -310,7 +329,7 @@ def circle_test(args):
         if args.save:
             filename = f'circle_{i:02d}_agents_{task_agents}_{model_name}.png'
             plt.savefig(filename, dpi=150)
-            np.save(filename[:-4], out)
+            np.save(filename[:-4], cnn_img)
             print(f'saved image and array {filename[:-3]+"{png,npy}"}')
         else:
             plt.show()
@@ -399,23 +418,22 @@ def connectivity_test(args):
     else:
         idx = args.sample
 
-    input_image = hdf5_file[mode]['task_img'][idx,...]
+    task_img = hdf5_file[mode]['task_img'][idx,...]
     opt_conn = hdf5_file[mode]['connectivity'][idx]
-    task_config = hdf5_file[mode]['task_config'][idx,...]
-    comm_config = hdf5_file[mode]['comm_config'][idx,...]
-    comm_config = comm_config[~np.isnan(comm_config[:,0])]
-    model_image = model.inference(input_image)
+    x_task = hdf5_file[mode]['task_config'][idx,...]
+    x_opt = hdf5_file[mode]['comm_config'][idx,...]
+    x_opt = x_opt[~np.isnan(x_opt[:,0])]
 
     params = cnn_image_parameters()
 
     L0_default = params['channel_model'].L0
-    cnn_conn, cnn_config, cnn_L0 = connectivity_from_image(task_config, model_image, params)
+    cnn_conn, x_cnn, cnn_L0, cnn_img = connectivity_from_CNN(task_img, model, x_task, params, args.draws)
 
     ax = plt.subplot()
-    plot_image(np.maximum(input_image, model_image), params, ax)
-    ax.plot(task_config[:,0], task_config[:,1], 'ro', label='task')
-    ax.plot(comm_config[:,0], comm_config[:,1], 'rx', label=f'opt ({comm_config.shape[0]})', ms=9, mew=3)
-    ax.plot(cnn_config[:,0], cnn_config[:,1], 'bx', label=f'CNN ({cnn_config.shape[0]})', ms=9, mew=3)
+    plot_image(np.maximum(task_img, cnn_img), params, ax)
+    ax.plot(x_task[:,0], x_task[:,1], 'ro', label='task')
+    ax.plot(x_opt[:,0], x_opt[:,1], 'rx', label=f'opt ({x_opt.shape[0]})', ms=9, mew=3)
+    ax.plot(x_cnn[:,0], x_cnn[:,1], 'bx', label=f'CNN ({x_cnn.shape[0]})', ms=9, mew=3)
     ax.set_yticks(np.arange(-80, 80, 20))
     ax.legend(loc='best', fontsize=14)
     ax.tick_params(axis='both', which='major', labelsize=16)
@@ -469,9 +487,9 @@ def compute_stats_test(args):
 
     for i in range(dataset_len):
         print(f'\rprocessing sample {i+1} of {dataset_len}\r', end="")
-        model_image = model.inference(hdf5_file[mode]['task_img'][i,...])
+        task_img = hdf5_file[mode]['task_img'][i,...]
         x_task = hdf5_file[mode]['task_config'][i,...]
-        cnn_conn[i], x_cnn, cnn_dbm[i] = connectivity_from_image(x_task, model_image, p)
+        cnn_conn[i], x_cnn, cnn_dbm[i], _ = connectivity_from_CNN(task_img, model, x_task, p, args.draws)
         cnn_count[i] = x_cnn.shape[0]
         opt_count[i] = np.sum(~np.isnan(hdf5_file[mode]['comm_config'][i,:,0]))
     print(f'processed {dataset_len} test samples in {dataset_file.name}')
@@ -663,7 +681,7 @@ def time_test(args):
             # run CNN
             t0 = time.time()
             cnn_image = model.inference(input_image)
-            connectivity_from_image(x_task, cnn_image, params)
+            connectivity_from_CNN(input_image, model, x_task, params, args.draws)
             dt = time.time() - t0
             cnn_time[team_idx, sample_idx] = dt
 
@@ -700,12 +718,14 @@ if __name__ == '__main__':
     line_parser = subparsers.add_parser('line', help='run line test on provided model')
     line_parser.add_argument('model', type=str, help='model to test')
     line_parser.add_argument('--save', action='store_true')
+    line_parser.add_argument('--draws', metavar='N', type=int, default=1, help='use best of N model samples')
 
     circ_parser = subparsers.add_parser('circle', help='run circle test on provided model')
     circ_parser.add_argument('model', type=str, help='model to test')
     circ_parser.add_argument('--save', action='store_true')
     circ_parser.add_argument('--view', action='store_true', help='turn on debugging plots')
     circ_parser.add_argument('--agents', type=int, help='number of agents in the circle')
+    circ_parser.add_argument('--draws', metavar='N', type=int, default=1, help='use best of N model samples')
 
     extrema_parser = subparsers.add_parser('extrema', help='show examples where the provided model performs well/poorly on the given dataset')
     extrema_parser.add_argument('model', type=str, help='model to test')
@@ -725,18 +745,20 @@ if __name__ == '__main__':
     conn_parser.add_argument('--sample', type=int, help='sample to test')
     conn_parser.add_argument('--save', action='store_true')
     conn_parser.add_argument('--train', action='store_true', help='draw sample from training data')
+    conn_parser.add_argument('--draws', metavar='N', type=int, default=1, help='use best of N model samples')
 
-    comp_stats_parser = subparsers.add_parser('compute_stats', help='compute performance statistics for a dataset')
-    comp_stats_parser.add_argument('model', type=str, help='model')
-    comp_stats_parser.add_argument('dataset', type=str, help='test dataset')
-    comp_stats_parser.add_argument('--train', action='store_true', help='run stats on training data partition')
-    comp_stats_parser.add_argument('--samples', type=int, help='number of samples to process; if omitted all samples in the dataset will be used')
-    comp_stats_parser.add_argument('--nosave', action='store_true', help='don\'t save connectivity data')
+    comp_parser = subparsers.add_parser('compute_stats', help='compute performance statistics for a dataset')
+    comp_parser.add_argument('model', type=str, help='model')
+    comp_parser.add_argument('dataset', type=str, help='test dataset')
+    comp_parser.add_argument('--train', action='store_true', help='run stats on training data partition')
+    comp_parser.add_argument('--samples', type=int, help='number of samples to process; if omitted all samples in the dataset will be used')
+    comp_parser.add_argument('--nosave', action='store_true', help='don\'t save connectivity data')
+    comp_parser.add_argument('--draws', metavar='N', type=int, default=1, help='use best of N model samples')
 
-    parse_stats_parser = subparsers.add_parser('parse_stats', help='parse performance statistics saved by compute_stats')
-    parse_stats_parser.add_argument('--stats', type=str, help='stats.npy files generated from compute_stats', nargs='+')
-    parse_stats_parser.add_argument('--labels', type=str, help='labels to use with each stats file', nargs='+')
-    parse_stats_parser.add_argument('--save', action='store_true')
+    parse_parser = subparsers.add_parser('parse_stats', help='parse performance statistics saved by compute_stats')
+    parse_parser.add_argument('--stats', type=str, help='stats.npy files generated from compute_stats', nargs='+')
+    parse_parser.add_argument('--labels', type=str, help='labels to use with each stats file', nargs='+')
+    parse_parser.add_argument('--save', action='store_true')
 
     var_parser = subparsers.add_parser('variation', help='show variation in model outputs')
     var_parser.add_argument('model', type=str, help='model')
@@ -745,6 +767,7 @@ if __name__ == '__main__':
 
     time_parser = subparsers.add_parser('time', help='compare CNN inference time with optimization time')
     time_parser.add_argument('model', type=str, help='model')
+    time_parser.add_argument('--draws', metavar='N', type=int, default=1, help='use best of N model samples')
 
     mpl.rcParams['figure.dpi'] = 150
 
