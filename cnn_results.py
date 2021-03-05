@@ -459,81 +459,114 @@ def compute_stats_test(args):
         else:
             dataset_len = args.samples
 
-    opt_connectivity = hdf5_file[mode]['connectivity'][:dataset_len]
-    cnn_connectivity = np.zeros_like(opt_connectivity)
-
     p = cnn_image_parameters()
+
+    opt_conn = hdf5_file[mode]['connectivity'][:dataset_len]
+    cnn_conn = np.zeros_like(opt_conn)
+    cnn_dbm = np.zeros_like(opt_conn)
+    cnn_count = np.zeros_like(opt_conn, dtype=int)
+    opt_count = np.zeros_like(opt_conn, dtype=int)
 
     for i in range(dataset_len):
         print(f'\rprocessing sample {i+1} of {dataset_len}\r', end="")
         model_image = model.inference(hdf5_file[mode]['task_img'][i,...])
-        task_config = hdf5_file[mode]['task_config'][i,...]
-        cnn_connectivity[i], _, _ = connectivity_from_image(task_config, model_image, p)
+        x_task = hdf5_file[mode]['task_config'][i,...]
+        cnn_conn[i], x_cnn, cnn_dbm[i] = connectivity_from_image(x_task, model_image, p)
+        cnn_count[i] = x_cnn.shape[0]
+        opt_count[i] = np.sum(~np.isnan(hdf5_file[mode]['comm_config'][i,:,0]))
     print(f'processed {dataset_len} test samples in {dataset_file.name}')
 
     if not args.nosave:
-        suffix = f'_{dataset_len}_samples_{model_name}_{dataset_file.stem}'
-        np.save('opt_connectivity' + suffix, opt_connectivity)
-        np.save('cnn_connectivity' + suffix, cnn_connectivity)
-        for name in ('opt_connectivity', 'cnn_connectivity'):
-            print(f'saved data to {name}{suffix}.npy')
+        filename = f'{dataset_len}_samples_{model_name}_{dataset_file.stem}_stats'
+        stats = np.vstack((opt_conn, cnn_conn, cnn_dbm, opt_count, cnn_count)).T
+        np.save(filename, stats)
+        print(f'saved data to {filename}.npy')
     else:
         print(f'NOT saving data')
 
     eps = 1e-10
-    opt_feasible = opt_connectivity > eps
-    cnn_feasible = cnn_connectivity > eps
+    opt_feasible = opt_conn > eps
+    cnn_feasible = cnn_conn > eps
+    cnn_morepower = cnn_dbm > p['channel_model'].L0
     both_feasible = opt_feasible & cnn_feasible
 
-    # sometimes the CNN performs better
-    better = np.where(cnn_connectivity > opt_connectivity)[0]
-    better = better[cnn_feasible[better]]
+    agent_count_diff = cnn_count - opt_count
 
-    absolute_error = opt_connectivity[both_feasible] - cnn_connectivity[both_feasible]
-    percent_error = absolute_error / opt_connectivity[both_feasible]
+    absolute_error = opt_conn[both_feasible] - cnn_conn[both_feasible]
+    percent_error = absolute_error / opt_conn[both_feasible]
 
     print(f'{np.sum(opt_feasible)}/{dataset_len} feasible with optimization')
     print(f'{np.sum(cnn_feasible)}/{dataset_len} feasible with CNN')
     print(f'{np.sum(cnn_feasible & ~opt_feasible)} cases where only the CNN was feasible')
-    print(f'{better.shape[0]} cases where the CNN performed better')
-    if better.shape[0] > 0:
-        print(f'    some samples: {", ".join(map(str, better[:min(5, better.shape[0])]))}')
+    print(f'{np.sum(cnn_morepower)} cases where the CNN required more transmit power')
+    print(f'cnn power use:  mean = {np.mean(cnn_dbm):.2f}, std = {np.std(cnn_dbm):.4f}')
+    print(f'cnn agent diff: mean = {np.mean(agent_count_diff):.3f}, std = {np.std(agent_count_diff):.4f}')
     print(f'absolute error: mean = {np.mean(absolute_error):.4f}, std = {np.std(absolute_error):.4f}')
     print(f'percent error:  mean = {100*np.mean(percent_error):.2f}%, std = {100*np.std(percent_error):.2f}%')
 
 
 def parse_stats_test(args):
 
-    opt_file = Path(args.opt_stats)
-    cnn_file = Path(args.cnn_stats)
-    for stats_file in (opt_file, cnn_file):
+    if len(args.stats) != len(args.labels):
+        print(f'number of stats files ({len(args.stats)}) must match number of labels ({len(args.labels)})')
+        return
+
+    stats = {}
+    for filename, label in zip(args.stats, args.labels):
+        stats_file = Path(filename)
         if not stats_file.exists():
             print(f'{stats_file} does not exist')
             return
-    opt_connectivity = np.load(opt_file)
-    cnn_connectivity = np.load(cnn_file)
-    samples = opt_connectivity.shape[0]
+        data = np.load(stats_file)
+        stats[label] = {'power': data[:,2], 'opt_count': data[:,3], 'cnn_count': data[:,4]}
 
-    eps = 1e-10
-    opt_feasible = opt_connectivity > eps
-    cnn_feasible = cnn_connectivity > eps
-    both_feasible = opt_feasible & cnn_feasible
+    # histogram of transmit powers
 
-    # sometimes the CNN performs better
-    better = np.where(cnn_connectivity > opt_connectivity)[0]
-    better = better[cnn_feasible[better]]
+    powers = [np.round(stats[label]['power'], 1) for label in args.labels]
+    bins = np.arange(-53.8, -37.8, 1.0)
 
-    absolute_error = opt_connectivity[both_feasible] - cnn_connectivity[both_feasible]
-    percent_error = absolute_error / opt_connectivity[both_feasible]
+    fig, ax = plt.subplots()
+    ax.hist(powers, bins=bins, stacked=False, log=True, label=args.labels)
+    ax.legend(loc='best', fontsize=16)
+    ax.set_xticks(np.arange(-53, -40, 3))
+    ax.set_xlabel('$L_0$ dBm', fontsize=18)
+    ax.set_ylabel('# test cases', fontsize=18)
+    ax.tick_params(axis='both', which='major', labelsize=18)
+    plt.tight_layout()
 
-    print(f'{np.sum(opt_feasible)}/{samples} feasible with optimization')
-    print(f'{np.sum(cnn_feasible)}/{samples} feasible with CNN')
-    print(f'{np.sum(cnn_feasible & ~opt_feasible)} cases where only the CNN was feasible')
-    print(f'{better.shape[0]} cases where the CNN performed better')
-    if better.shape[0] > 0:
-        print(f'    some samples: {", ".join(map(str, better[:min(5, better.shape[0])]))}')
-    print(f'absolute error: mean = {np.mean(absolute_error):.4f}, std = {np.std(absolute_error):.4f}')
-    print(f'percent error:  mean = {100*np.mean(percent_error):.2f}%, std = {100*np.std(percent_error):.2f}%')
+    if args.save:
+        plt.savefig('power_histogram.pdf', dpi=150)
+        print('saved power_histogram.pdf')
+
+
+    # histogram of difference between CNN agent count and opt agent count
+
+    # agent_diffs = [(stats[l]['cnn_count'] - stats[l]['opt_count']).astype(int) for l in args.labels]
+    agent_diffs = []
+    for label in args.labels:
+        mask = np.round(stats[label]['power'], 1) == -53.0  # all samples where CNN used default power
+        agent_diffs += [(stats[label]['cnn_count'][mask] - stats[label]['opt_count'][mask]).astype(int)]
+
+    bins = np.arange(np.min(np.hstack(agent_diffs)), np.max(np.hstack(agent_diffs))+2, 1)
+
+    fig, ax = plt.subplots()
+    ax.hist(agent_diffs, bins=bins, stacked=False, log=True, align='left', label=args.labels)
+    ax.legend(loc='best', fontsize=18)
+    ax.set_xticks(bins[:-1])
+    ax.set_xlabel('# CNN agents $-$ # opt agents', fontsize=18)
+    ax.set_ylabel('# test cases', fontsize=18)
+    ax.tick_params(axis='both', which='major', labelsize=18)
+    plt.tight_layout()
+
+    if args.save:
+        plt.savefig('agent_count_histogram.pdf', dpi=150)
+        print('saved agent_count_histogram.pdf')
+
+    plt.show()
+
+    print(f'power: mean = {np.mean(np.hstack(powers)):.2f}, std = {np.std(np.hstack(powers)):.3f}')
+    print(f'diffs: mean = {np.mean(np.hstack(agent_diffs)):.4f}, std = {np.std(np.hstack(agent_diffs)):.3f}'
+          f' ({sum([len(d) for d in agent_diffs])} / {sum([len(p) for p in powers])})')
 
 
 def variation_test(args):
@@ -701,8 +734,8 @@ if __name__ == '__main__':
     comp_stats_parser.add_argument('--nosave', action='store_true', help='don\'t save connectivity data')
 
     parse_stats_parser = subparsers.add_parser('parse_stats', help='parse performance statistics saved by compute_stats')
-    parse_stats_parser.add_argument('opt_stats', type=str, help='opt_connectivity... file')
-    parse_stats_parser.add_argument('cnn_stats', type=str, help='cnn_connectivity... file')
+    parse_stats_parser.add_argument('--stats', type=str, help='stats.npy files generated from compute_stats', nargs='+')
+    parse_stats_parser.add_argument('--labels', type=str, help='labels to use with each stats file', nargs='+')
     parse_stats_parser.add_argument('--save', action='store_true')
 
     var_parser = subparsers.add_parser('variation', help='show variation in model outputs')
