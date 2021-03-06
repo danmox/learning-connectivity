@@ -20,6 +20,7 @@ from scipy.spatial import Voronoi, Delaunay
 import os
 from feasibility import adaptive_bbx, min_feasible_sample
 import time
+import datetime
 
 
 def get_file_name(filename):
@@ -495,7 +496,8 @@ def compute_stats_test(args):
     print(f'processed {dataset_len} test samples in {dataset_file.name}')
 
     if not args.nosave:
-        filename = f'{dataset_len}_samples_{model_name}_{dataset_file.stem}_stats'
+        timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+        filename = f'{dataset_len}_samples_{model_name}_{dataset_file.stem}_stats_{timestamp}'
         stats = np.vstack((opt_conn, cnn_conn, cnn_dbm, opt_count, cnn_count)).T
         np.save(filename, stats)
         print(f'saved data to {filename}.npy')
