@@ -287,7 +287,7 @@ class BetaVAEModel(AEBase):
 
         # generate the input to the decoder using the reparameterization trick
         std = logvar.div(2).exp()
-        eps = Variable(std.data.new(std.size()).normal_())
+        eps = torch.randn_like(std)
         z = mu + std*eps
 
         out = self.decoder(z)
