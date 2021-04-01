@@ -12,13 +12,12 @@ from skimage.filters import gaussian
 from connectivity_maximization import circle_points
 from mid.connectivity_planner.src.connectivity_planner.connectivity_optimization import ConnectivityOpt as ConnOpt, round_sf
 from mid.connectivity_planner.src.connectivity_planner.channel_model import PiecewisePathLossModel
-from feasibility import connect_graph
+from mid.connectivity_planner.src.connectivity_planner.feasibility import connect_graph, adaptive_bbx, min_feasible_sample
 import torch
 from hdf5_dataset_utils import ConnectivityDataset
 import h5py
 from scipy.spatial import Voronoi, Delaunay
 import os
-from feasibility import adaptive_bbx, min_feasible_sample
 import time
 import datetime
 
