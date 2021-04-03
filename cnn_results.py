@@ -69,7 +69,8 @@ def connectivity_from_CNN(input_image, model, x_task, params, samples=1, viz=Fal
     for i in range(samples):
 
         # run inference and extract the network team configuration
-        cnn_imgs[i] = model.inference(input_image)
+        
+        cnn_imgs[i] = model.evaluate(torch.from_numpy(input_image)).cpu().detach().numpy()
         x_comm += [compute_coverage(cnn_imgs[i], params, viz=viz)]
         agents[i] = x_comm[i].shape[0]
 
