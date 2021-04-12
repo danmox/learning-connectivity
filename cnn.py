@@ -288,13 +288,10 @@ class BetaVAEModel(AEBase):
         mu = latent_distribution[:, :self.z_dim]
         logvar = latent_distribution[:, self.z_dim:]
 
-        if self.training:
-            # generate the input to the decoder using the reparameterization trick
-            std = logvar.div(2).exp()
-            eps = torch.randn_like(std)
-            z = mu + std*eps
-        else:
-            z = mu
+        # generate the input to the decoder using the reparameterization trick
+        std = logvar.div(2).exp()
+        eps = torch.randn_like(std)
+        z = mu + std*eps
 
         out = self.decoder(z)
 

@@ -1,5 +1,4 @@
 from pathlib import Path
-from hdf5_dataset_utils import kernelized_config_img, subs_to_pos
 from hdf5_dataset_utils import cnn_image_parameters, plot_image
 from math import ceil
 from cnn import load_model_for_eval
@@ -7,16 +6,15 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import argparse
 import numpy as np
-from skimage.filters.thresholding import threshold_local
-from skimage.filters import gaussian
 from connectivity_maximization import circle_points
 from mid.connectivity_planner.src.connectivity_planner.connectivity_optimization import ConnectivityOpt as ConnOpt, round_sf
 from mid.connectivity_planner.src.connectivity_planner.channel_model import PiecewisePathLossModel
 from mid.connectivity_planner.src.connectivity_planner.feasibility import connect_graph, adaptive_bbx, min_feasible_sample
+from mid.connectivity_planner.src.connectivity_planner import lloyd
+
 import torch
 from hdf5_dataset_utils import ConnectivityDataset
 import h5py
-from scipy.spatial import Voronoi, Delaunay
 import os
 import time
 import datetime
@@ -32,30 +30,13 @@ def get_file_name(filename):
 
 
 def compute_peaks(image, threshold_val=80, blur_sigma=1, region_size=7, view=False):
-
-    # remove noise in image
-    blurred_img = gaussian(image, sigma=blur_sigma)
-
-    # only keep the max value in a local region
-    thresh_fcn = lambda a : max(a.max(), 0.01)
-    thresh_mask = threshold_local(blurred_img, region_size, method='generic', param=thresh_fcn)
-    peaks = np.argwhere(blurred_img >= thresh_mask)
-
-    # only pixels above a threshold value should be considered peaks
-    # NOTE in rare cases no peaks with intensity greater than 80 are found in
-    # the image, so walk back the threshold until one is found
-    out_peaks = np.zeros((0,2))
-    while threshold_val > 0 and out_peaks.shape[0] == 0:
-        out_peaks = peaks[image[peaks[:,0], peaks[:,1]] > threshold_val]
-        threshold_val -= 20
-
+    out_peaks, blurred_img = lloyd.compute_peaks(image, threshold_val, blur_sigma, region_size)
     if view:
         fig, ax = plt.subplots()
         ax.plot(out_peaks[:,0], out_peaks[:,1], 'ro')
         ax.imshow(blurred_img.T)
         ax.invert_yaxis()
         plt.show()
-
     return out_peaks
 
 
@@ -100,82 +81,29 @@ def connectivity_from_opt(task_config, p, viz=False):
     return conn, opt.get_comm_config()
 
 
-def compute_voronoi(pts, bbx):
-
-    # reflect points about all sides of bbx
-    pts_l = np.copy(pts)
-    pts_l[:,0] = -pts_l[:,0] + 2*bbx[0]
-    pts_r = np.copy(pts)
-    pts_r[:,0] = -pts_r[:,0] + 2*bbx[1]
-    pts_d = np.copy(pts)
-    pts_d[:,1] = -pts_d[:,1] + 2*bbx[2]
-    pts_u = np.copy(pts)
-    pts_u[:,1] = -pts_u[:,1] + 2*bbx[3]
-    pts_all = np.vstack((pts, pts_l, pts_r, pts_d, pts_u))
-
-    # Voronoi tesselation of all points, including the reflected ones: as a
-    # result the Voronoi cells associated with pts are all closed
-    vor = Voronoi(pts_all)
-
-    # vor contains Voronoi information for pts_all but we only need the 1st
-    # fifth that correspond to pts
-    region_idcs = vor.point_region[:vor.point_region.shape[0]//5].tolist()
-    vertex_idcs = [vor.regions[i] for i in region_idcs]
-    cell_polygons = [vor.vertices[idcs] for idcs in vertex_idcs]
-
-    # generate triangulations of cells for use in integration
-    hulls = []
-    for poly in cell_polygons:
-        hulls.append(Delaunay(poly))
-
-    return hulls
-
-
 def compute_coverage(image, params, viz=False):
     """compute coverage using Lloyd's Algorithm"""
 
     # extract peaks of intensity image
-
     config_subs = compute_peaks(image, threshold_val=60, view=viz)
-    config = subs_to_pos(params['meters_per_pixel'], params['img_size'][0], config_subs)
+    config = lloyd.sub_to_pos(params['meters_per_pixel'], params['img_size'][0], config_subs)
     peaks = np.copy(config)
 
     # Lloyd's algorithm
-
+    coverage_range = params['coverage_range']
     it = 1
-    bbx = params['img_side_len'] / 2.0 * np.asarray([-1,1,-1,1])
-    coverage_range = 1.5 * params['kernel_std']
     while True:
-
-        voronoi_cells = compute_voronoi(config, bbx)
+        voronoi_cells = lloyd.compute_voronoi(config, params['bbx'])
+        new_config = lloyd.lloyd_step(image, params['xy'], config, voronoi_cells, coverage_range)
+        update_dist = np.sum(np.linalg.norm(config - new_config, axis=1))
 
         cell_patches = []
         circle_patches = []
-        centroids = np.zeros((len(voronoi_cells),2))
-        for i, cell in enumerate(voronoi_cells):
-            cell_patches.append(mpl.patches.Polygon(cell.points, True))
-            circle_patches.append(mpl.patches.Circle(config[i], radius=coverage_range))
-
-            # assemble the position of the center and corresponding intensity
-            # of every pixel that falls within the voronoi cell
-            cell_pixel_mask = cell.find_simplex(params['xy']) >= 0
-            coverage_range_mask = np.linalg.norm(params['xy'] - config[i], axis=2) < coverage_range
-            pixel_mask = cell_pixel_mask & coverage_range_mask
-            cell_pixel_pos = params['xy'][pixel_mask]
-            cell_pixel_val = image[pixel_mask]
-            cell_volume = np.sum(cell_pixel_val)
-
-            # if there are intensity values >0 within the voronoi cell compute
-            # the intensity weighted centroid of of the cell otherwise compute
-            # the geometric centroid of the cell
-            if cell_volume < 1e-8:
-                centroids[i] = np.sum(cell_pixel_pos, axis=0) / cell_pixel_pos.shape[0]
-            else:
-                centroids[i] = np.sum(cell_pixel_val[:, np.newaxis] * cell_pixel_pos, axis=0) / cell_volume
-
-        update_dist = np.sum(np.linalg.norm(config - centroids, axis=1))
-
         if viz:
+            for i, cell in enumerate(voronoi_cells):
+                cell_patches.append(mpl.patches.Polygon(cell.points, True))
+                circle_patches.append(mpl.patches.Circle(config[i], radius=coverage_range))
+
             p = mpl.collections.PatchCollection(cell_patches, alpha=0.2)
             p.set_array(np.arange(len(cell_patches))*255/(len(cell_patches)-1))
             p.set_cmap('jet')
@@ -185,7 +113,7 @@ def compute_coverage(image, params, viz=False):
             ax.add_collection(p)
             ax.add_collection(mpl.collections.PatchCollection(circle_patches, ec='r', fc='none'))
             ax.plot(peaks[:,0], peaks[:,1], 'rx', label='peaks')
-            ax.plot(centroids[:,0], centroids[:,1], 'bo', label='centroids')
+            ax.plot(new_config[:,0], new_config[:,1], 'bo', label='centroids')
             # ax.plot(config[:,1], config[:,0], 'bx', color=(0,1,0), label='prev config')
             ax.set_title(f'it {it}, cond = {round_sf(update_dist,3)}')
             ax.legend()
@@ -195,7 +123,7 @@ def compute_coverage(image, params, viz=False):
         if update_dist < 1e-5:
             break
 
-        config = centroids
+        config = new_config
         it += 1
 
     return config
@@ -254,7 +182,7 @@ def line_test(args):
     step = 2*np.asarray([[1., 0.],[-1., 0.]])
     for i in range(22):
         x_task = start_config + i*step
-        img = kernelized_config_img(x_task, params)
+        img = lloyd.kernelized_config_img(x_task, params)
 
         cnn_conn, x_cnn, cnn_L0, cnn_img = connectivity_from_CNN(img, model, x_task, params, args.draws)
         opt_conn, x_opt = connectivity_from_opt(x_task, params)
@@ -300,7 +228,7 @@ def circle_test(args):
     rads = np.linspace(min_rad, 60, 15)
     for i, rad in enumerate(rads):
         x_task = circle_points(rad, task_agents)
-        img = kernelized_config_img(x_task, params)
+        img = lloyd.kernelized_config_img(x_task, params)
 
         cnn_conn, x_cnn, cnn_L0, cnn_img = connectivity_from_CNN(img, model, x_task, params, args.draws)
         opt_conn, x_opt = connectivity_from_opt(x_task, params)
@@ -676,7 +604,7 @@ def time_test(args):
                 x_task, x_comm = min_feasible_sample(task_agents, params['comm_range'], bbx)
                 if x_task.shape[0] + x_comm.shape[0] == total_agents:
                     break
-            input_image = kernelized_config_img(x_task, params)
+            input_image = lloyd.kernelized_config_img(x_task, params)
 
             print(f'\rtiming sample {sample_idx}/{samples} for team {total_agents} agent team\r', end="")
 

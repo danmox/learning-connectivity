@@ -1,21 +1,34 @@
 from cnn_results import connectivity_from_CNN, connectivity_from_opt
-from hdf5_dataset_utils import cnn_image_parameters, kernelized_config_img, plot_image
+from hdf5_dataset_utils import cnn_image_parameters, plot_image
+from mid.connectivity_planner.src.connectivity_planner import lloyd
 from cnn import load_model_for_eval
 from matplotlib import pyplot as plt
 import numpy as np
 import torch
 import torch.jit
 from argparse import ArgumentParser
-
+import json
 
 def checkpoint_to_script(original_filename, script_filename):
     params = cnn_image_parameters()
     model = load_model_for_eval(original_filename)
     script = torch.jit.trace_module(
-        model, {"evaluate": torch.zeros(params["img_size"])}
+        model, {"evaluate": torch.zeros(params["img_size"])}, check_trace=False
     )
     torch.jit.save(script, script_filename)
 
+    # save the parameters as json
+    # we do not want all the parameters since some of them are np arrays
+    required_params = (
+            "comm_range",
+            "img_res",
+            "kernel_std",
+            "meters_per_pixel",
+            "min_area_factor",
+    )
+    params = {k: params[k] for k in required_params}
+    with open(script_filename + ".json", "w") as f:
+        json.dump(params, f)
 
 def plot(original_filename, script_filename):
     params = cnn_image_parameters()
@@ -23,7 +36,7 @@ def plot(original_filename, script_filename):
     model_jit = torch.jit.load(script_filename)
 
     x_task = np.array([[-70, -70], [70, 70]])
-    input_img = kernelized_config_img(x_task, params)
+    input_img = lloyd.kernelized_config_img(x_task, params)
 
     _, x_cnn, _, _ = connectivity_from_CNN(input_img, model, x_task, params, samples=10)
     _, x_jit, _, _ = connectivity_from_CNN(
@@ -41,7 +54,7 @@ def plot(original_filename, script_filename):
         x_cnn[:, 0], x_cnn[:, 1], "bx", label=f"CNN ({x_cnn.shape[0]})", ms=9, mew=3
     )
     ax.plot(
-        x_jit[:, 0], x_jit[:, 1], "gx", label=f"CNN ({x_jit.shape[0]})", ms=9, mew=3
+        x_jit[:, 0], x_jit[:, 1], "gx", label=f"JIT ({x_jit.shape[0]})", ms=9, mew=3
     )
     ax.legend()
     plt.show()
@@ -54,7 +67,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("checkpoint", help="The filename of the checkpoint.")
     parser.add_argument(
-        "script", help="The filename where the torchscript should be saved. Ex: mid/models/model.ts."
+        "script",
+        help="The filename where the torchscript should be saved. Ex: mid/models/model.ts.",
     )
     parser.add_argument(
         "--no-convert", help="Should conversion be run.", action="store_true"

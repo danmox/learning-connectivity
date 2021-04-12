@@ -3,7 +3,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-from scipy.stats import norm
 from pathlib import Path
 import shutil
 import time
@@ -19,7 +18,7 @@ from torch.utils.data import Dataset
 from mid.connectivity_planner.src.connectivity_planner.connectivity_optimization import ConnectivityOpt as ConnOpt
 from mid.connectivity_planner.src.connectivity_planner.channel_model import PiecewisePathLossModel
 from mid.connectivity_planner.src.connectivity_planner.feasibility import adaptive_bbx, min_feasible_sample
-
+from mid.connectivity_planner.src.connectivity_planner import lloyd
 
 class ConnectivityDataset(Dataset):
     """connectivity dataset"""
@@ -75,17 +74,6 @@ class ConnectivityDataset(Dataset):
     def __len__(self):
         return self.splits[-1]
 
-
-def pos_to_subs(res, img_size, pts):
-    """assumes center of image corresponds to (0,0) meters"""
-    return np.floor(pts / res).astype(int) + int(img_size)/2
-
-
-def subs_to_pos(res, img_size, subs):
-    """assumes center of image corresponds to (0,0) meters"""
-    return (subs - img_size/2.0) * res
-
-
 def human_readable_duration(dur):
     t_str = []
     for unit, name in zip((86400., 3600., 60., 1.), ('d','h','m','s')):
@@ -98,25 +86,6 @@ def human_readable_duration(dur):
 def console_width_str(msg):
     col, _ = shutil.get_terminal_size((80,20))
     return msg + (col - len(msg))*' '
-
-
-def kernelized_config_img(config, params):
-    """generate kernelized image from agents configuration
-
-    inputs:
-      config - Nx2 numpy array of agent positions
-      params - image parameters from cnn_image_parameters()
-
-    ourputs:
-      img - image with node positions marked with a gaussian kernel
-    """
-    img = np.zeros(params['img_size'])
-    for agent in config:
-        dist = np.linalg.norm(params['xy'] - agent, axis=2)
-        mask = dist < 3.0*params['kernel_std']
-        img[mask] = np.maximum(img[mask], norm.pdf(dist[mask], scale=params['kernel_std']))
-    img *= 255.0 / norm.pdf(0, scale=params['kernel_std']) # normalize image to [0.0, 255.0]
-    return np.clip(img, 0, 255)
 
 
 def write_hdf5_image_data(params, filename, queue):
@@ -195,37 +164,23 @@ def generate_hdf5_image_data(params, sample_queue, writer_queue):
         out_dict = {}
         out_dict['mode'] = d['mode']
         out_dict['task_config'] = d['task_config']
-        out_dict['task_img'] = kernelized_config_img(d['task_config'], params)
+        out_dict['task_img'] = lloyd.kernelized_config_img(d['task_config'], params)
         out_dict['connectivity'] = conn_opt.maximize_connectivity()
         out_dict['comm_config'] = np.vstack((conn_opt.get_comm_config(), np.empty((pad,2)) * np.nan))
-        out_dict['comm_img'] = kernelized_config_img(conn_opt.get_comm_config(), params)
+        out_dict['comm_img'] = lloyd.kernelized_config_img(conn_opt.get_comm_config(), params)
 
         # put sample dict in writer queue to be written to the hdf5 database
         writer_queue.put(out_dict)
 
 
 def cnn_image_parameters():
-
-    img_res = 128
-
     p = {}
     p['comm_range'] = 30.0-1.0         # (almost) the maximum range of communication hardware
-    p['img_size'] = (img_res, img_res) # square images used with CNN
-    p['kernel_std'] = img_res * 0.05   # size of Gaussian kernel used to mark agent locations
+    p['img_res'] = 128
+    p['kernel_std'] = p['img_res'] * 0.05   # size of Gaussian kernel used to mark agent locations
     p['meters_per_pixel'] = 1.25       # metric distance of each pixel in the image
     p['min_area_factor'] = 0.4         # minimum density of agents to sample
-
-    # bounding box within which all agent positions must lie; this prevents
-    # agents being placed near the edge of the image where their Gaussian
-    # kernel would get cut off
-    p['img_side_len'] = img_res * p['meters_per_pixel'] # for convenience
-    p['max_agent_bbx'] = (p['img_side_len']/2.0 - p['kernel_std']) * np.asarray([-1,1,-1,1])
-
-    # the xy location of the center of each pixel
-    # NOTE the metric location (0,0) is chosen to be the center of the image
-    ij = np.stack(np.meshgrid(np.arange(img_res), np.arange(img_res), indexing='ij'), axis=2)
-    p['xy'] = p['meters_per_pixel'] * (ij + 0.5) - p['img_side_len']/2.0
-
+    p = lloyd.compute_paramaters(p)
     # TODO set cutoff distance from p['comm_range']
     p['channel_model'] = PiecewisePathLossModel(print_values=False)
 
