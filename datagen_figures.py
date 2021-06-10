@@ -10,7 +10,7 @@ mpl.rcParams.update({'font.size': 16})
 
 mode = 'test'
 sample = 3267
-dataset = 'data/connectivity_100000s_4t_20201014-012608.hdf5'
+dataset = 'data/old/connectivity_100000s_4t_20201014-012608.hdf5'
 
 params = cnn_image_parameters()
 img_bbx = params['img_size'][0] * params['meters_per_pixel'] / 2.0 * np.asarray([-1,1,-1,1])
@@ -22,6 +22,13 @@ comm_image = hdf5_file[mode]['comm_img'][sample,...]
 task_config = hdf5_file[mode]['task_config'][sample,...]
 mst_config = connect_graph(task_config, params['comm_range'])
 comm_config = hdf5_file[mode]['comm_config'][sample,...]
+
+print('task_config')
+print(np.vstack((task_config[:,1], -task_config[:,0])).T)
+print('mst_config')
+print(np.vstack((mst_config[:,1], -mst_config[:,0])).T)
+print('comm_config')
+print(np.vstack((comm_config[:,1], -comm_config[:,0])).T)
 
 # task image
 fig, ax = plt.subplots()
