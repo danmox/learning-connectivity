@@ -116,6 +116,13 @@ class AEBase(pl.LightningModule):
         self.logger.experiment.add_scalar('val_loss', val_loss, self.current_epoch)
         self.log_network_image(self.val_progress_batch, 'val_results')
 
+    def evaluate(self, x):
+        with torch.no_grad():
+            x = x[None, None] / 255.0
+            y_hat, _, _ = self(x.float())
+            y_hat = torch.clamp(255*y_hat, 0, 255).to(torch.uint8).squeeze()
+        return y_hat
+
     def inference(self, x):
         """perform inference on model from numpy kernelized config image
 
@@ -125,11 +132,7 @@ class AEBase(pl.LightningModule):
         outputs:
           y_hat - a numpy image in the same format as x
         """
-        with torch.no_grad():
-            x = torch.from_numpy(np.expand_dims(x / 255.0, axis=(0,1))).float()
-            y_hat, _, _ = self(x)
-            y_hat = torch.clamp(255*y_hat, 0, 255).cpu().detach().numpy().astype(np.uint8).squeeze()
-        return y_hat
+        return self.evaluate(torch.from_numpy(x)).cpu().detach().numpy()
 
 
 class UAEModel(AEBase):
@@ -285,10 +288,13 @@ class BetaVAEModel(AEBase):
         mu = latent_distribution[:, :self.z_dim]
         logvar = latent_distribution[:, self.z_dim:]
 
-        # generate the input to the decoder using the reparameterization trick
-        std = logvar.div(2).exp()
-        eps = Variable(std.data.new(std.size()).normal_())
-        z = mu + std*eps
+        if self.training:
+            # generate the input to the decoder using the reparameterization trick
+            std = logvar.div(2).exp()
+            eps = torch.randn_like(std)
+            z = mu + std*eps
+        else:
+            z = mu
 
         out = self.decoder(z)
 

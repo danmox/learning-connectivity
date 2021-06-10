@@ -1,6 +1,8 @@
 *.mat
 *.m~
 .idea
+.vscode
+.python-version
 results
 bags
 data

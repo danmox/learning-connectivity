@@ -3,7 +3,7 @@ import h5py
 from hdf5_dataset_utils import cnn_image_parameters
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-from feasibility import connect_graph
+from mid.connectivity_planner.src.connectivity_planner.feasibility import connect_graph
 
 mpl.rcParams['figure.dpi'] = 150
 mpl.rcParams.update({'font.size': 16})
