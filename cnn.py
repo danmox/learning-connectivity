@@ -100,6 +100,23 @@ class AEBase(pl.LightningModule):
         log_dir = Path(self.trainer.weights_save_path) / self.logger.save_dir
         return log_dir / f'version_{self.logger.version}' / 'checkpoints'
 
+    def training_step(self, batch, batch_idx):
+        # set aside some data to show learning progress
+        if self.train_progress_batch is None:
+            self.train_progress_batch = batch
+
+        x, y = batch
+        y_hat = self(x)
+        loss = F.mse_loss(y_hat, y)
+
+        self.loss_hist += loss.item()
+        if batch_idx != 0 and batch_idx % self.log_step == 0:
+            self.logger.experiment.add_scalar('loss', self.loss_hist / self.log_step, self.log_it)
+            self.loss_hist = 0.0
+            self.log_it += 1
+
+        return loss
+
     # provide visual feedback of the learning progress after every epoch
     def training_epoch_end(self, outs):
         torch.set_grad_enabled(False)
@@ -109,6 +126,16 @@ class AEBase(pl.LightningModule):
 
         torch.set_grad_enabled(True)
         self.train()
+
+    def validation_step(self, batch, batch_idx):
+        # set aside some data to show network performance on validation data
+        if self.val_progress_batch is None:
+            self.val_progress_batch = batch
+
+        x, y = batch
+        y_hat = self.output(x)
+        loss = F.mse_loss(y_hat, y)
+        return loss
 
     def validation_epoch_end(self, outs):
         val_loss = np.mean(np.asarray([o.item() for o in outs]))
@@ -127,7 +154,18 @@ class AEBase(pl.LightningModule):
         self.logger.experiment.add_scalar('val_loss', val_loss, self.current_epoch)
         self.log_network_image(self.val_progress_batch, 'val_results')
 
+    def output(self, x):
+        return self(x)
+
     def evaluate(self, x):
+        """perform inference on model from pytorch tensor
+
+        inputs:
+          x - a numpy image generated from kernelized_config_img
+
+        outputs:
+          y_hat - a numpy image in the same format as x
+        """
         with torch.no_grad():
             x = x[None, None] / 255.0
             y_hat, _, _ = self(x.float())
@@ -196,23 +234,6 @@ class UAEModel(AEBase):
     def configure_optimizers(self):
         optimizer = optim.Adam(self.parameters(), lr=0.00001) # NOTE start low and increase
         return optimizer
-
-    def training_step(self, batch, batch_idx):
-        # set aside some data to show learning progress
-        if self.train_progress_batch is None:
-            self.train_progress_batch = batch
-
-        x, y = batch
-        y_hat = self(x)
-        loss = F.mse_loss(y_hat, y)
-
-        self.loss_hist += loss.item()
-        if batch_idx != 0 and batch_idx % self.log_step == 0:
-            self.logger.experiment.add_scalar('loss', self.loss_hist / self.log_step, self.log_it)
-            self.loss_hist = 0.0
-            self.log_it += 1
-
-        return loss
 
 
 class BetaVAEModel(AEBase):
@@ -328,15 +349,7 @@ class BetaVAEModel(AEBase):
 
         return loss
 
-    def validation_step(self, batch, batch_idx):
-        # set aside some data to show network performance on validation data
-        if self.val_progress_batch is None:
-            self.val_progress_batch = batch
 
-        x, y = batch
-        y_hat, _, _ = self(x)
-        loss = F.mse_loss(y_hat, y)
-        return loss
 
 
 def train_main(args):
@@ -355,24 +368,36 @@ def train_main(args):
     print('training on the following dataset(s):')
     print(f'{dataset_names}')
 
-    # training params
+    # initialize model or load one, if provided
 
-    beta = 1.0
-    z_dim = 16
-    kld_weight = 1.0 / len(train_dataloader)
     log_step = ceil(len(train_dataloader)/100) # log averaged loss ~100 times per epoch
 
-    # load model, if provided
+    if args.type == 'betavae':
 
-    if args.model is not None:
-        model_path = Path(args.model)
-        if not model_path.exists():
-            print(f'provided model {model_path} not found')
-            return
-        model = BetaVAEModel.load_from_checkpoint(args.model, beta=beta, z_dim=z_dim,
-                                                  kld_weight=kld_weight, log_step=log_step)
-    else:
-        model = BetaVAEModel(beta=beta, z_dim=z_dim, kld_weight=kld_weight, log_step=log_step)
+        beta = 1.0
+        z_dim = 16
+        kld_weight = 1.0 / len(train_dataloader)
+
+        if args.model is not None:
+            model_path = Path(args.model)
+            if not model_path.exists():
+                print(f'provided model {model_path} not found')
+                return
+            model = BetaVAEModel.load_from_checkpoint(args.model, beta=beta, z_dim=z_dim,
+                                                      kld_weight=kld_weight, log_step=log_step)
+        else:
+            model = BetaVAEModel(beta=beta, z_dim=z_dim, kld_weight=kld_weight, log_step=log_step)
+
+    elif args.type == 'convae':
+
+        if args.model is not None:
+            model_path = Path(args.model)
+            if not model_path.exists():
+                print(f'provided model {model_path} not found')
+                return
+            model = ConvAEModel.load_from_checkpoint(args.model, log_step=log_step)
+        else:
+            model = ConvAEModel(log_step=log_step)
 
     # train network
 
@@ -460,6 +485,7 @@ if __name__ == '__main__':
 
     # train subparser
     train_parser = subparsers.add_parser('train', help='train connectivity CNN model on provided dataset')
+    train_parser.add_argument('type', type=str, help='model type to train', choices=['betavae', 'convae'])
     train_parser.add_argument('dataset', type=str, help='dataset for training', nargs='+')
     train_parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train for')
     train_parser.add_argument('--batch-size', type=int, default=4, help='batch size for training')
