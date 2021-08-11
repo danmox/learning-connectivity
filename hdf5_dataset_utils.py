@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
 
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib as mpl
-from pathlib import Path
+import argparse
+import datetime
 import shutil
 import time
-import datetime
-import h5py
-import argparse
-from multiprocessing import Queue, Process, cpu_count
-import shutil
 from math import ceil
+from multiprocessing import Process, Queue, cpu_count
+from pathlib import Path
+
+import h5py
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from mid.connectivity_planner.src.connectivity_planner import lloyd
 from mid.connectivity_planner.src.connectivity_planner.connectivity_optimization import ConnectivityOpt as ConnOpt
 from mid.connectivity_planner.src.connectivity_planner.channel_model import PiecewisePathLossModel
 from mid.connectivity_planner.src.connectivity_planner.feasibility import adaptive_bbx, min_feasible_sample
-from mid.connectivity_planner.src.connectivity_planner import lloyd
+
 
 class ConnectivityDataset(Dataset):
     """connectivity dataset"""
@@ -139,7 +140,7 @@ def write_hdf5_image_data(params, filename, queue):
         total_saved += 1
         duration_str = human_readable_duration(time.time()-t0)
         msg = console_width_str(f'saved sample {total_saved} of {total_samples}, elapsed time: {duration_str}')
-        print('\r' + msg + '\r', end="")
+        print('\r' + msg + '\r', end='')
 
     print(console_width_str(f'generated {total_samples} samples in {duration_str}'))
     print(f'saved data to: {hdf5_file.filename}')
@@ -175,13 +176,12 @@ def generate_hdf5_image_data(params, sample_queue, writer_queue):
 
 def cnn_image_parameters():
     p = {}
-    p['comm_range'] = 30.0-1.0         # (almost) the maximum range of communication hardware
+    p['comm_range'] = 30.0-1.0              # (almost) the maximum range of communication hardware
     p['img_res'] = 128
     p['kernel_std'] = p['img_res'] * 0.05   # size of Gaussian kernel used to mark agent locations
-    p['meters_per_pixel'] = 1.25       # metric distance of each pixel in the image
-    p['min_area_factor'] = 0.4         # minimum density of agents to sample
+    p['meters_per_pixel'] = 1.25            # metric distance of each pixel in the image
+    p['min_area_factor'] = 0.4              # minimum density of agents to sample
     p = lloyd.compute_paramaters(p)
-    # TODO set cutoff distance from p['comm_range']
     p['channel_model'] = PiecewisePathLossModel(print_values=False)
 
     return p

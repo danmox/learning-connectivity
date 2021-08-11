@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 
+import argparse
+import os
+from pathlib import Path
+from math import ceil
+
+import h5py
+import numpy as np
+import matplotlib.pyplot as plt
+import pytorch_lightning as pl
+from pytorch_lightning import loggers as pl_loggers
 import torch
-from torchvision.utils import make_grid
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torchvision.utils import make_grid
 from torch.utils.data import DataLoader
+
 from hdf5_dataset_utils import ConnectivityDataset
-import pytorch_lightning as pl
-from pytorch_lightning import loggers as pl_loggers
-from torch.autograd import Variable
-import matplotlib.pyplot as plt
-import numpy as np
-from pathlib import Path
-import argparse
-import os
-from math import ceil
-import h5py
 
 
 def count_parameters(model):
@@ -49,6 +50,16 @@ def show_imgs(x, z, y, show=True):
         plt.imshow(y_tmp)
     if show:
         plt.show()
+
+
+class View(nn.Module):
+    """helper class to provide view functionality in sequential containers"""
+    def __init__(self, size):
+        super().__init__()
+        self.size = size
+
+    def forward(self, tensor):
+        return tensor.view(self.size)
 
 
 class AEBase(pl.LightningModule):
@@ -204,16 +215,6 @@ class UAEModel(AEBase):
         return loss
 
 
-class View(nn.Module):
-    """helper class to provide view functionality in sequential containers"""
-    def __init__(self, size):
-        super().__init__()
-        self.size = size
-
-    def forward(self, tensor):
-        return tensor.view(self.size)
-
-
 class BetaVAEModel(AEBase):
     """Beta Variational Auto Encoder class for learning connectivity from images
 
@@ -351,7 +352,7 @@ def train_main(args):
                                   shuffle=True, num_workers=cpus)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=cpus)
     dataset_names = '\n'.join(args.dataset)
-    print(f'training on the following dataset(s):')
+    print('training on the following dataset(s):')
     print(f'{dataset_names}')
 
     # training params
