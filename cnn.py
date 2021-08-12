@@ -350,6 +350,52 @@ class BetaVAEModel(AEBase):
         return loss
 
 
+class ConvAEModel(AEBase):
+    """convolutions all the way"""
+
+    def __init__(self, log_step=1):
+        super().__init__(log_step)
+
+        self.network = nn.Sequential(            #  1, 128, 128 (input)
+            nn.Conv2d(1, 32, 8, 2, 3),           # 32,  64,  64
+            nn.LeakyReLU(0.2, True),
+            nn.Conv2d(32, 32, 8, 2, 3),          # 32,  32,  32
+            nn.LeakyReLU(0.2, True),
+            nn.Conv2d(32, 32, 4, 2, 1),          # 32,  16,  16
+            nn.LeakyReLU(0.2, True),
+            nn.Conv2d(32, 32, 4, 2, 1),          # 32,   8,   8
+            nn.LeakyReLU(0.2, True),
+            nn.Conv2d(32, 32, 4, 2, 1),          # 32,   4,   4
+            nn.LeakyReLU(0.2, True),
+            nn.ConvTranspose2d(32, 32, 4, 2, 1), # 32,   8,   8
+            nn.ReLU(True),
+            nn.ConvTranspose2d(32, 32, 4, 2, 1), # 32,  16,  16
+            nn.ReLU(True),
+            nn.ConvTranspose2d(32, 32, 4, 2, 1), # 32,  32,  32
+            nn.ReLU(True),
+            nn.ConvTranspose2d(32, 32, 8, 2, 3), # 32,  64,  64
+            nn.ReLU(True),
+            nn.ConvTranspose2d(32, 1, 8, 2, 3),  # 32, 128, 128
+        )                                        #  1, 128, 128 (output)
+
+        # initialize weights
+        for block in self._modules:
+            for m in self._modules[block]:
+                if isinstance(m, (nn.Linear, nn.Conv2d)):
+                    nn.init.kaiming_normal_(m.weight)
+                    if m.bias is not None:
+                        m.bias.data.fill_(0)
+                elif isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):
+                    m.weight.data.fill_(1)
+                    if m.bias is not None:
+                        m.bias.data.fill_(0)
+
+    def forward(self, x):
+        return self.network(x)
+
+    def configure_optimizers(self):
+        optimizer = optim.Adam(self.parameters(), lr=1e-4)
+        return optimizer
 
 
 def train_main(args):
