@@ -356,26 +356,27 @@ class ConvAEModel(AEBase):
     def __init__(self, log_step=1):
         super().__init__(log_step)
 
+        nf = 64
         self.network = nn.Sequential(            #  1, 128, 128 (input)
-            nn.Conv2d(1, 32, 8, 2, 3),           # 32,  64,  64
+            nn.Conv2d(1, nf, 8, 2, 3),           # nf,  64,  64
             nn.LeakyReLU(0.2, True),
-            nn.Conv2d(32, 32, 8, 2, 3),          # 32,  32,  32
+            nn.Conv2d(nf, nf, 8, 2, 3),          # nf,  32,  32
             nn.LeakyReLU(0.2, True),
-            nn.Conv2d(32, 32, 4, 2, 1),          # 32,  16,  16
+            nn.Conv2d(nf, nf, 4, 2, 1),          # nf,  16,  16
             nn.LeakyReLU(0.2, True),
-            nn.Conv2d(32, 32, 4, 2, 1),          # 32,   8,   8
+            nn.Conv2d(nf, nf, 4, 2, 1),          # nf,   8,   8
             nn.LeakyReLU(0.2, True),
-            nn.Conv2d(32, 32, 4, 2, 1),          # 32,   4,   4
+            nn.Conv2d(nf, nf, 4, 2, 1),          # nf,   4,   4
             nn.LeakyReLU(0.2, True),
-            nn.ConvTranspose2d(32, 32, 4, 2, 1), # 32,   8,   8
+            nn.ConvTranspose2d(nf, nf, 4, 2, 1), # nf,   8,   8
             nn.ReLU(True),
-            nn.ConvTranspose2d(32, 32, 4, 2, 1), # 32,  16,  16
+            nn.ConvTranspose2d(nf, nf, 4, 2, 1), # nf,  16,  16
             nn.ReLU(True),
-            nn.ConvTranspose2d(32, 32, 4, 2, 1), # 32,  32,  32
+            nn.ConvTranspose2d(nf, nf, 4, 2, 1), # nf,  32,  32
             nn.ReLU(True),
-            nn.ConvTranspose2d(32, 32, 8, 2, 3), # 32,  64,  64
+            nn.ConvTranspose2d(nf, nf, 8, 2, 3), # nf,  64,  64
             nn.ReLU(True),
-            nn.ConvTranspose2d(32, 1, 8, 2, 3),  # 32, 128, 128
+            nn.ConvTranspose2d(nf, 1, 8, 2, 3),  # nf, 128, 128
         )                                        #  1, 128, 128 (output)
 
         # initialize weights
