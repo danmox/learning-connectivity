@@ -174,11 +174,11 @@ def generate_hdf5_image_data(params, sample_queue, writer_queue):
         writer_queue.put(out_dict)
 
 
-def cnn_image_parameters():
+def cnn_image_parameters(img_scale_factor=1):
     p = {}
     p['comm_range'] = 30.0-1.0              # (almost) the maximum range of communication hardware
-    p['img_res'] = 128
-    p['kernel_std'] = p['img_res'] * 0.05   # size of Gaussian kernel used to mark agent locations
+    p['img_res'] = 128 * img_scale_factor
+    p['kernel_std'] = 6.4                   # size of Gaussian kernel used to mark agent locations (derived from: 128*0.05)
     p['meters_per_pixel'] = 1.25            # metric distance of each pixel in the image
     p['min_area_factor'] = 0.4              # minimum density of agents to sample
     p = lloyd.compute_paramaters(p)
@@ -289,16 +289,16 @@ def view_hdf5_dataset(dataset_file, samples):
         print(f'the dataset {dataset} was not found')
         return
 
-    # parameters related to the dataset
-    params = cnn_image_parameters()
-
     hdf5_file = h5py.File(dataset, mode='r')
 
     sample_idcs = []
     for count in [hdf5_file[m]['task_img'].shape[0] for m in ('train','test')]:
         sample_idcs.append(np.random.choice(count, (min(count, samples),), False))
 
-    bbx = params['img_size'][0] * params['meters_per_pixel'] / 2.0 * np.asarray([-1,1,-1,1])
+    # parameters related to the dataset
+    scale_factor = int(hdf5_file['train']['task_img'].shape[1] / 128)
+    params = cnn_image_parameters(img_scale_factor=scale_factor)
+
     for idcs, mode in zip(sample_idcs, ('train','test')):
         idcs.sort()
         print(f"plotting {len(idcs)} {mode}ing samples: {', '.join(map(str, idcs))}")
@@ -310,7 +310,7 @@ def view_hdf5_dataset(dataset_file, samples):
             ax = plt.subplot(2,2,1)
             ax.plot(task_config[:,0], task_config[:,1], 'g.', ms=4)
             ax.axis('scaled')
-            ax.axis(bbx)
+            ax.axis(params['bbx'])
             ax = plt.subplot(2,2,2)
             plot_image(hdf5_file[mode]['task_img'][idx,...], params, ax)
 
@@ -319,7 +319,7 @@ def view_hdf5_dataset(dataset_file, samples):
             ax.plot(task_config[:,0], task_config[:,1], 'g.', ms=4)
             ax.plot(comm_config[:,0], comm_config[:,1], 'r.', ms=4)
             ax.axis('scaled')
-            ax.axis(bbx)
+            ax.axis(params['bbx'])
             ax = plt.subplot(2,2,4)
             plot_image(hdf5_file[mode]['comm_img'][idx,...], params, ax)
 
