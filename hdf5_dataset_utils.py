@@ -296,8 +296,8 @@ def view_hdf5_dataset(dataset_file, samples):
         sample_idcs.append(np.random.choice(count, (min(count, samples),), False))
 
     # parameters related to the dataset
-    scale_factor = int(hdf5_file['train']['task_img'].shape[1] / 128)
-    params = cnn_image_parameters(img_scale_factor=scale_factor)
+    img_scale_factor = int(hdf5_file['train']['task_img'].shape[1] / 128)
+    params = cnn_image_parameters(img_scale_factor)
 
     for idcs, mode in zip(sample_idcs, ('train','test')):
         idcs.sort()

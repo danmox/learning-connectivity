@@ -158,17 +158,9 @@ class AEBase(pl.LightningModule):
         return self(x)
 
     def evaluate(self, x):
-        """perform inference on model from pytorch tensor
-
-        inputs:
-          x - a numpy image generated from kernelized_config_img
-
-        outputs:
-          y_hat - a numpy image in the same format as x
-        """
         with torch.no_grad():
             x = x[None, None] / 255.0
-            y_hat, _, _ = self(x.float())
+            y_hat = self(x.float())
             y_hat = torch.clamp(255*y_hat, 0, 255).to(torch.uint8).squeeze()
         return y_hat
 
@@ -349,6 +341,13 @@ class BetaVAEModel(AEBase):
 
         return loss
 
+    def evaluate(self, x):
+        with torch.no_grad():
+            x = x[None, None] / 255.0
+            y_hat, _, _ = self(x.float())
+            y_hat = torch.clamp(255*y_hat, 0, 255).to(torch.uint8).squeeze()
+        return y_hat
+
 
 class ConvAEModel(AEBase):
     """convolutions all the way"""
@@ -453,12 +452,17 @@ def train_main(args):
     trainer.fit(model, train_dataloader, val_dataloader)
 
 
-def load_model_for_eval(model_file):
+def load_model_for_eval(model_file, model_type='convae'):
     model_file = Path(model_file)
     if not model_file.exists():
         print(f'provided model {model_file} not found')
         return None
-    model = BetaVAEModel.load_from_checkpoint(str(model_file), beta=1.0, z_dim=16)
+    if model_type == 'betavae':
+        model = BetaVAEModel.load_from_checkpoint(str(model_file), beta=1.0, z_dim=16)
+    elif model_type == 'convae':
+        model = ConvAEModel.load_from_checkpoint(str(model_file))
+    else:
+        print(f'unrecognized model type {model_type}')
     model.eval()
     return model
 
