@@ -50,7 +50,7 @@ def connectivity_from_CNN(input_image, model, x_task, params, samples=1, viz=Fal
     for i in range(samples):
 
         # run inference and extract the network team configuration
-        
+
         cnn_imgs[i] = model.evaluate(torch.from_numpy(input_image)).cpu().detach().numpy()
         x_comm += [compute_coverage(cnn_imgs[i], params, viz=viz)]
         agents[i] = x_comm[i].shape[0]
@@ -341,8 +341,8 @@ def connectivity_test(args):
 
     if args.sample is None:
         idx = np.random.randint(dataset_len)
-    elif args.sample > dataset_len:
-        print(f'provided sample index {args.sample} out of range of dataset with length {dataset_len}')
+    elif args.sample >= dataset_len:
+        print(f'sample index {args.sample} out of dataset index range: [0-{dataset_len-1}]')
         return
     else:
         idx = args.sample
@@ -353,7 +353,8 @@ def connectivity_test(args):
     x_opt = hdf5_file[mode]['comm_config'][idx,...]
     x_opt = x_opt[~np.isnan(x_opt[:,0])]
 
-    params = cnn_image_parameters()
+    img_scale_factor = int(hdf5_file['train']['task_img'].shape[1] / 128)
+    params = cnn_image_parameters(img_scale_factor)
 
     L0_default = params['channel_model'].L0
     cnn_conn, x_cnn, cnn_L0, cnn_img = connectivity_from_CNN(task_img, model, x_task, params, args.draws)
@@ -363,7 +364,7 @@ def connectivity_test(args):
     ax.plot(x_task[:,0], x_task[:,1], 'ro', label='task')
     ax.plot(x_opt[:,0], x_opt[:,1], 'rx', label=f'opt ({x_opt.shape[0]})', ms=9, mew=3)
     ax.plot(x_cnn[:,0], x_cnn[:,1], 'bx', label=f'CNN ({x_cnn.shape[0]})', ms=9, mew=3)
-    ax.set_yticks(np.arange(-80, 80, 20))
+    # ax.set_yticks(np.arange(-80, 80, 20))
     ax.legend(loc='best', fontsize=14)
     ax.tick_params(axis='both', which='major', labelsize=16)
 
