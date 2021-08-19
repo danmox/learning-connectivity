@@ -187,9 +187,15 @@ def cnn_image_parameters(img_scale_factor=1):
     return p
 
 
-def generate_hdf5_dataset(task_agents, samples, jobs):
+def generate_hdf5_dataset(args):
 
-    params = cnn_image_parameters() # fixed image generation parameters
+    # unpack args
+    task_agents = args.task_count
+    samples = args.samples
+    jobs = args.jobs
+    image_scale = args.scale
+
+    params = cnn_image_parameters(image_scale) # fixed image generation parameters
     params['task_agents'] = task_agents # so that params can be passed around with all necessary args
 
     train_samples = int(0.85 * samples)
@@ -215,10 +221,10 @@ def generate_hdf5_dataset(task_agents, samples, jobs):
     # than once in a second
     timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
     filename = Path(__file__).resolve().parent / 'data' / \
-        f"connectivity_{samples}s_{task_agents}t_{timestamp}.hdf5"
+        f"{params['img_res']}_connectivity_{samples}s_{task_agents}t_{timestamp}.hdf5"
 
     # print dataset info to console
-    res = params['img_size'][0]
+    res = params['img_res']
     print(f"using {res}x{res} images with {params['meters_per_pixel']} meters/pixel "
           f"and {task_agents} task agents")
 
@@ -282,7 +288,11 @@ def plot_image(image, params, ax):
     ax.invert_yaxis()
 
 
-def view_hdf5_dataset(dataset_file, samples):
+def view_hdf5_dataset(args):
+
+    # unpack args
+    dataset_file = args.dataset
+    samples = args.samples
 
     dataset = Path(dataset_file)
     if not dataset.exists():
@@ -338,6 +348,7 @@ if __name__ == '__main__':
     gen_parser = subparsers.add_parser('generate', help='generate connectivity dataset')
     gen_parser.add_argument('samples', type=int, help='number of samples to generate')
     gen_parser.add_argument('task_count', type=int, help='number of task agents')
+    gen_parser.add_argument('--scale', type=int, default=1, help='image size used for dagaset generation: 128*scale')
     gen_parser.add_argument('--jobs', '-j', type=int, metavar='N',
                             help='number of worker processes to use; default is # of CPU cores')
 
@@ -348,11 +359,11 @@ if __name__ == '__main__':
                              help='number of samples to view')
     view_parser.add_argument('--dpi', type=int, default=150, help='dpi to use for figure')
 
-    p = parser.parse_args()
+    args = parser.parse_args()
 
-    if p.command == 'generate':
-        generate_hdf5_dataset(p.task_count, p.samples, p.jobs)
-    elif p.command == 'view':
+    if args.command == 'generate':
+        generate_hdf5_dataset(args)
+    elif args.command == 'view':
         # helps the figures to be readable on hidpi screens
-        mpl.rcParams['figure.dpi'] = p.dpi
-        view_hdf5_dataset(p.dataset, p.samples)
+        mpl.rcParams['figure.dpi'] = args.dpi
+        view_hdf5_dataset(args)
