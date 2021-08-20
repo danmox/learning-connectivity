@@ -154,7 +154,8 @@ def segment_test(args):
     output_image = hdf5_file['test']['comm_img'][idx,...]
     model_image = model.inference(input_image)
 
-    params = cnn_image_parameters()
+    img_scale_factor = int(hdf5_file['train']['task_img'].shape[1] / 128)
+    params = cnn_image_parameters(img_scale_factor)
 
     coverage_points = compute_coverage(model_image, params, viz=args.view)
 
@@ -299,7 +300,8 @@ def extrema_test(args):
     output_image = hdf5_file['test']['comm_img'][extreme_idx,...]
     model_image = model.inference(input_image)
 
-    params = cnn_image_parameters()
+    img_scale_factor = int(hdf5_file['train']['task_img'].shape[1] / 128)
+    params = cnn_image_parameters(img_scale_factor)
 
     extrema_type = 'best' if args.best else 'worst'
     print(f'{extrema_type} sample is {extreme_idx}{20*" "}')
@@ -407,7 +409,8 @@ def compute_stats_test(args):
         else:
             dataset_len = args.samples
 
-    p = cnn_image_parameters()
+    img_scale_factor = int(hdf5_file['train']['task_img'].shape[1] / 128)
+    p = cnn_image_parameters(img_scale_factor)
 
     opt_conn = hdf5_file[mode]['connectivity'][:dataset_len]
     cnn_conn = np.zeros_like(opt_conn)
@@ -589,7 +592,8 @@ def time_test(args):
     team_sizes = np.arange(min_agents, max_agents+1)
     samples = 10
 
-    params = cnn_image_parameters()
+    img_scale_factor = 2
+    params = cnn_image_parameters(img_scale_factor)
 
     cnn_time = np.zeros((team_sizes.shape[0], samples))
     opt_time = np.zeros_like(cnn_time)
@@ -667,7 +671,7 @@ if __name__ == '__main__':
     seg_parser.add_argument('model', type=str, help='model')
     seg_parser.add_argument('dataset', type=str, help='test dataset')
     seg_parser.add_argument('--sample', type=int, help='sample to test')
-    seg_parser.add_argument('--isolate', action='store_true')
+    seg_parser.add_argument('--isolate', action='store_true', help='show the CNN output without the input image overlayed')
     seg_parser.add_argument('--view', action='store_true', help="show each iteration of Lloyd's algorithm")
 
     conn_parser = subparsers.add_parser('connectivity', help='compute connectivity for a CNN output')
