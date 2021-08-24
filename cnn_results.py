@@ -1,7 +1,7 @@
 from pathlib import Path
 from hdf5_dataset_utils import cnn_image_parameters, plot_image
 from math import ceil
-from cnn import load_model_for_eval
+from cnn import load_model_for_eval, get_file_name
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import argparse
@@ -20,14 +20,11 @@ import time
 import datetime
 
 
-def get_file_name(filename):
-    """return name of filename, following symlinks if necessary"""
-    filename = Path(args.model)
-    if filename.is_symlink():
-        return Path(os.readlink(filename)).stem
-    else:
-        return filename.stem
-
+def scale_from_filename(filename):
+    parts = filename.split('_')
+    if '256' in parts:
+        return 2
+    return 1
 
 def compute_peaks(image, threshold_val=80, blur_sigma=1, region_size=7, view=False):
     out_peaks, blurred_img = lloyd.compute_peaks(image, threshold_val, blur_sigma, region_size)
@@ -177,7 +174,8 @@ def line_test(args):
         return
     model_name = get_file_name(args.model)
 
-    params = cnn_image_parameters()
+    scale = scale_from_filename(model_name)
+    params = cnn_image_parameters(scale)
 
     start_config = np.asarray([[20., 0.], [-20., 0.]])
     step = 2*np.asarray([[1., 0.],[-1., 0.]])
@@ -222,7 +220,8 @@ def circle_test(args):
         return
     model_name = get_file_name(args.model)
 
-    params = cnn_image_parameters()
+    scale = scale_from_filename(model_name)
+    params = cnn_image_parameters(scale)
 
     task_agents = 3 if args.agents is None else args.agents
     min_rad = (params['comm_range']+2.0) / (2.0 * np.sin(np.pi / task_agents))

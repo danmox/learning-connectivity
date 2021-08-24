@@ -149,7 +149,7 @@ class AEBase(pl.LightningModule):
             if self.best_model_path is not None:
                 self.best_model_path.unlink(missing_ok=True)
 
-            filename = self._ckpt_dir() / self.model_name + f'valloss_{val_loss}_epoch_{self.current_epoch}.ckpt'
+            filename = self._ckpt_dir() / (self.model_name + f'valloss_{val_loss}_epoch_{self.current_epoch}.ckpt')
             self.trainer.save_checkpoint(filename, weights_only=True)
             self.best_model_path = filename
 
@@ -481,6 +481,15 @@ def train_main(args):
     trainer.fit(model, train_dataloader, val_dataloader)
 
 
+def get_file_name(path):
+    """return name of filename, following symlinks if necessary"""
+    filename = Path(path)
+    if filename.is_symlink():
+        return Path(os.readlink(filename)).stem
+    else:
+        return filename.stem
+
+
 def load_model_for_eval(model_file):
     model_file = Path(model_file)
     if not model_file.exists():
@@ -488,11 +497,9 @@ def load_model_for_eval(model_file):
         return None
 
     # be sure to follow symlinks before parsing filename
-    model_file_name = model_file.name
-    if model_file.is_symlink():
-        model_file_name = Path(os.readlink(model_file)).name
+    model_file_name = get_file_name(model_file)
 
-    model_type = model_file.name.split('_')[0]
+    model_type = model_file_name.split('_')[0]
     if model_type == 'betavae':
         args = BetaVAEModel.parse_model_name(model_file_name)
         model = BetaVAEModel.load_from_checkpoint(str(model_file), **args)
