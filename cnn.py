@@ -82,6 +82,8 @@ class AEBase(pl.LightningModule):
         self.val_loss_best = float('Inf')
         self.best_model_path = None
 
+        self.model_name = ''
+
     # log network output for a single batch
     def log_network_image(self, batch, name):
         x, y = batch
@@ -147,7 +149,7 @@ class AEBase(pl.LightningModule):
             if self.best_model_path is not None:
                 self.best_model_path.unlink(missing_ok=True)
 
-            filename = self._ckpt_dir() / f'val_loss_{val_loss:.4f}_epoch_{self.current_epoch}.ckpt'
+            filename = self._ckpt_dir() / self.model_name + f'valloss_{val_loss}_epoch_{self.current_epoch}.ckpt'
             self.trainer.save_checkpoint(filename, weights_only=True)
             self.best_model_path = filename
 
@@ -236,8 +238,25 @@ class BetaVAEModel(AEBase):
 
     """
 
-    def __init__(self, beta, z_dim, kld_weight=1.0, log_step=1):
+    @classmethod
+    def parse_model_name(cls, name):
+        parts = name.split('_')
+        assert parts[0] == 'betavae'
+        assert parts[1] == 'beta'
+        assert parts[3] == 'kld'
+        assert parts[5] == 'z'
+        assert parts[7] == 'nf'
+        args = {}
+        args['beta'] = float(parts[2])
+        args['kld_weight'] = float(parts[4])
+        args['z_dim'] = int(parts[6])
+        args['nf'] = int(parts[8])
+        return args
+
+    def __init__(self, beta, z_dim, kld_weight=1.0, log_step=1, nf=48):
         super().__init__(log_step)
+
+        self.model_name = 'betavae_beta_{beta}_kld_{kld_weight}_z_{z_dim}_nf_{nf}_'
 
         self.beta = beta
         self.kld_weight = kld_weight
@@ -335,7 +354,7 @@ class BetaVAEModel(AEBase):
 
         self.loss_hist += loss.item()
         if batch_idx != 0 and batch_idx % self.log_step == 0:
-            self.logger.experiment.add_scalar('train_loss', self.loss_hist / self.log_step, self.log_it)
+            self.logger.experiment.add_scalar('loss', self.loss_hist / self.log_step, self.log_it)
             self.loss_hist = 0.0
             self.log_it += 1
 
@@ -352,10 +371,20 @@ class BetaVAEModel(AEBase):
 class ConvAEModel(AEBase):
     """convolutions all the way"""
 
-    def __init__(self, log_step=1):
+    @classmethod
+    def parse_model_name(cls, name):
+        parts = name.split('_')
+        assert parts[0] == 'convae'
+        assert parts[1] == 'nf'
+        args = {}
+        args['nf'] = int(parts[2])
+        return args
+
+    def __init__(self, log_step=1, nf=64):
         super().__init__(log_step)
 
-        nf = 64
+        self.model_name = 'convae_nf_{nf}_'
+
         self.network = nn.Sequential(            #  1, 128, 128 (input)
             nn.Conv2d(1, nf, 8, 2, 3),           # nf,  64,  64
             nn.LeakyReLU(0.2, True),
@@ -452,17 +481,27 @@ def train_main(args):
     trainer.fit(model, train_dataloader, val_dataloader)
 
 
-def load_model_for_eval(model_file, model_type='convae'):
+def load_model_for_eval(model_file):
     model_file = Path(model_file)
     if not model_file.exists():
         print(f'provided model {model_file} not found')
         return None
+
+    # be sure to follow symlinks before parsing filename
+    model_file_name = model_file.name
+    if model_file.is_symlink():
+        model_file_name = Path(os.readlink(model_file)).name
+
+    model_type = model_file.name.split('_')[0]
     if model_type == 'betavae':
-        model = BetaVAEModel.load_from_checkpoint(str(model_file), beta=1.0, z_dim=16)
+        args = BetaVAEModel.parse_model_name(model_file_name)
+        model = BetaVAEModel.load_from_checkpoint(str(model_file), **args)
     elif model_type == 'convae':
-        model = ConvAEModel.load_from_checkpoint(str(model_file))
+        args = ConvAEModel.parse_model_name(model_file_name)
+        model = ConvAEModel.load_from_checkpoint(str(model_file), **args)
     else:
-        print(f'unrecognized model type {model_type}')
+        print(f'unrecognized model type {model_type} from model {model_file}')
+        return None
     model.eval()
     return model
 
