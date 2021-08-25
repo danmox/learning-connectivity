@@ -167,6 +167,11 @@ def segment_test(args):
     print(f'optimal coverage computed for {dataset_file.name} test partition sample {idx}')
 
 
+def extract_128px_center_image(image, scale):
+    center_idx = 128 * scale // 2
+    return image[center_idx-64:center_idx+64, center_idx-64:center_idx+64]
+
+
 def line_test(args):
 
     model = load_model_for_eval(args.model)
@@ -186,9 +191,12 @@ def line_test(args):
         cnn_conn, x_cnn, cnn_L0, cnn_img = connectivity_from_CNN(img, model, x_task, params, args.draws)
         opt_conn, x_opt = connectivity_from_opt(x_task, params)
 
-        fig, ax = plt.subplots()
+        disp_img = extract_128px_center_image(np.maximum(cnn_img, img), scale)
+        img_extents = params['img_side_len'] / 2.0 * np.asarray([-1,1,1,-1]) / scale
 
-        plot_image(np.maximum(cnn_img, img), params, ax)
+        fig, ax = plt.subplots()
+        ax.imshow(disp_img.T, extent=img_extents)
+        ax.invert_yaxis()
         ax.plot(x_task[:,0], x_task[:,1], 'ro', label='task')
         ax.plot(x_opt[:,0], x_opt[:,1], 'rx', label=f'opt ({x_opt.shape[0]})', ms=9, mew=3)
         ax.plot(x_cnn[:,0], x_cnn[:,1], 'bx', label=f'CNN ({x_cnn.shape[0]})', ms=9, mew=3)
@@ -237,9 +245,12 @@ def circle_test(args):
               f'cnn conn = {cnn_conn:.4f}, opt # = {x_opt.shape[0]}, '
               f'opt conn = {opt_conn:.4f}')
 
-        fig, ax = plt.subplots()
+        disp_img = extract_128px_center_image(np.maximum(cnn_img, img), scale)
+        img_extents = params['img_side_len'] / 2.0 * np.asarray([-1,1,1,-1]) / scale
 
-        plot_image(np.maximum(cnn_img, img), params, ax)
+        fig, ax = plt.subplots()
+        ax.imshow(disp_img.T, extent=img_extents)
+        ax.invert_yaxis()
         ax.plot(x_task[:,0], x_task[:,1], 'ro', label='task')
         ax.plot(x_opt[:,0], x_opt[:,1], 'rx', label=f'opt ({x_opt.shape[0]})', ms=9, mew=3)
         ax.plot(x_cnn[:,0], x_cnn[:,1], 'bx', label=f'CNN ({x_cnn.shape[0]})', ms=9, mew=3)
