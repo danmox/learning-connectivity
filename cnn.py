@@ -179,54 +179,75 @@ class AEBase(pl.LightningModule):
 
 
 class UAEModel(AEBase):
-    """undercomplete auto encoder for learning connectivity from images"""
+    """your stock undercomplete auto encoder"""
 
-    def __init__(self, log_step=1):
+    @classmethod
+    def parse_model_name(cls, name):
+        parts = name.split('_')
+        assert parts[0] == 'uae'
+        assert parts[1] == 'nf'
+        args = {}
+        args['nf'] = int(parts[2])
+        return args
+
+    def __init__(self, log_step=1, nf=32):
         super().__init__(log_step)
 
-        # encoder
-        self.econv1 = nn.Conv2d(1, 4, 5, padding=2)
-        self.econv2 = nn.Conv2d(4, 8, 5, padding=2)
-        self.econv3 = nn.Conv2d(8, 12, 5, padding=2)
-        self.econv4 = nn.Conv2d(12, 16, 5, padding=2)
-        self.econv5 = nn.Conv2d(16, 20, 5, padding=2)
-        self.pool = nn.MaxPool2d(2, 2)
+        self.model_name = f'uae_nf_{nf}_'
 
-        # TODO need more parameters
-        # TODO squeeze to vector
+        self.network = nn.Sequential(            #  1, 256, 256 (input)
+            nn.Conv2d(1, nf, 8, 2, 3),           # nf, 128, 128
+            nn.ReLU(True),
+            nn.Conv2d(nf, nf, 8, 2, 3),          # nf,  64,  64
+            nn.ReLU(True),
+            nn.Conv2d(nf, nf, 4, 2, 1),          # nf,  32,  32
+            nn.ReLU(True),
+            nn.Conv2d(nf, nf, 4, 2, 1),          # nf,  16,  16
+            nn.ReLU(True),
+            nn.Conv2d(nf, nf, 4, 2, 1),          # nf,   8,   8
+            nn.ReLU(True),
+            nn.Conv2d(nf, nf, 4, 2, 1),          # nf,   4,   4
+            nn.ReLU(True),
+            View((-1, nf*4*4)),                  # nf*16
+            nn.Linear(nf*4*4, 256),              # 256
+            nn.ReLU(True),
+            nn.Linear(256, 256),                 # 256
+            nn.ReLU(True),
+            nn.Linear(256, 256),                 # 256
+            nn.ReLU(True),
+            nn.Linear(256, nf*4*4),              # nf*16
+            nn.ReLU(True),
+            View((-1, nf, 4, 4)),                # nf,   4,   4
+            nn.ConvTranspose2d(nf, nf, 4, 2, 1), # nf,   8,   8
+            nn.ReLU(True),
+            nn.ConvTranspose2d(nf, nf, 4, 2, 1), # nf,  16,  16
+            nn.ReLU(True),
+            nn.ConvTranspose2d(nf, nf, 4, 2, 1), # nf,  32,  32
+            nn.ReLU(True),
+            nn.ConvTranspose2d(nf, nf, 4, 2, 1), # nf,  64,  64
+            nn.ReLU(True),
+            nn.ConvTranspose2d(nf, nf, 8, 2, 3), # nf, 128, 128
+            nn.ReLU(True),
+            nn.ConvTranspose2d(nf, 1, 8, 2, 3)   # nf, 256, 256
+        )                                        #  1, 256, 256 (output)
 
-        # decoder
-        self.dconv1 = nn.Conv2d(20, 16, 5, padding=2)
-        self.dconv2 = nn.Conv2d(16, 12, 5, padding=2)
-        self.dconv3 = nn.Conv2d(12, 8, 5, padding=2)
-        self.dconv4 = nn.Conv2d(8, 4, 5, padding=2)
-        self.dconv5 = nn.Conv2d(4, 1, 5, padding=2)
-
-        # TODO randomize initialization
+        # initialize weights
+        for block in self._modules:
+            for m in self._modules[block]:
+                if isinstance(m, (nn.Linear, nn.Conv2d)):
+                    nn.init.kaiming_normal_(m.weight)
+                    if m.bias is not None:
+                        m.bias.data.fill_(0)
+                elif isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):
+                    m.weight.data.fill_(1)
+                    if m.bias is not None:
+                        m.bias.data.fill_(0)
 
     def forward(self, x):
-
-        # encoder
-        x = self.pool(F.relu(self.econv1(x)))
-        x = self.pool(F.relu(self.econv2(x)))
-        x = self.pool(F.relu(self.econv3(x)))
-        x = self.pool(F.relu(self.econv4(x)))
-        x = self.pool(F.relu(self.econv5(x)))
-
-        # decoder
-        x = F.relu(self.dconv1(F.interpolate(x, scale_factor=2, mode='nearest')))
-        x = F.relu(self.dconv2(F.interpolate(x, scale_factor=2, mode='nearest')))
-        x = F.relu(self.dconv3(F.interpolate(x, scale_factor=2, mode='nearest')))
-        x = F.relu(self.dconv4(F.interpolate(x, scale_factor=2, mode='nearest')))
-        x = F.relu(self.dconv5(F.interpolate(x, scale_factor=2, mode='nearest')))
-
-        return x
-
-    def output(self, x):
-        return self(x)
+        return self.network(x)
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=0.00001) # NOTE start low and increase
+        optimizer = optim.Adam(self.parameters(), lr=1e-4)
         return optimizer
 
 
@@ -253,7 +274,7 @@ class BetaVAEModel(AEBase):
         args['nf'] = int(parts[8])
         return args
 
-    def __init__(self, beta, z_dim, kld_weight=1.0, log_step=1, nf=48):
+    def __init__(self, beta, z_dim, kld_weight=1.0, log_step=1, nf=32):
         super().__init__(log_step)
 
         self.model_name = f'betavae_beta_{beta}_kld_{kld_weight}_z_{z_dim}_nf_{nf}_'
@@ -262,19 +283,21 @@ class BetaVAEModel(AEBase):
         self.kld_weight = kld_weight
         self.z_dim = z_dim # dimension of latent distribution
 
-        self.encoder = nn.Sequential(            #  1, 128, 128 (input)
-            nn.Conv2d(1, 32, 4, 2, 1),           # 32,  64,  64
+        self.encoder = nn.Sequential(            #  1, 256, 256 (input)
+            nn.Conv2d(1, nf, 4, 2, 1),           # nf, 128, 128
             nn.ReLU(True),
-            nn.Conv2d(32, 32, 4, 2, 1),          # 32,  32,  32
+            nn.Conv2d(nf, nf, 4, 2, 1),          # nf,  64,  64
             nn.ReLU(True),
-            nn.Conv2d(32, 32, 4, 2, 1),          # 32,  16,  16
+            nn.Conv2d(nf, nf, 4, 2, 1),          # nf,  32,  32
             nn.ReLU(True),
-            nn.Conv2d(32, 32, 4, 2, 1),          # 32,   8,   8
+            nn.Conv2d(nf, nf, 4, 2, 1),          # nf,  16,  16
             nn.ReLU(True),
-            nn.Conv2d(32, 32, 4, 2, 1),          # 32,   4,   4
+            nn.Conv2d(nf, nf, 4, 2, 1),          # nf,   8,   8
             nn.ReLU(True),
-            View((-1, 32*4*4)),                  # 512
-            nn.Linear(32*4*4, 256),              # 256
+            nn.Conv2d(nf, nf, 4, 2, 1),          # nf,   4,   4
+            nn.ReLU(True),
+            View((-1, nf*4*4)),                  # nf*16
+            nn.Linear(nf*4*4, 256),              # 256
             nn.ReLU(True),
             nn.Linear(256, 256),                 # 256
             nn.ReLU(True),
@@ -286,19 +309,21 @@ class BetaVAEModel(AEBase):
             nn.ReLU(True),
             nn.Linear(256, 256),                 # 256
             nn.ReLU(True),
-            nn.Linear(256, 32*4*4),              # 512
+            nn.Linear(256, nf*4*4),              # nf*16
             nn.ReLU(True),
-            View((-1, 32, 4, 4)),                # 32,   4,   4
-            nn.ConvTranspose2d(32, 32, 4, 2, 1), # 32,   8,   8
+            View((-1, nf, 4, 4)),                # nf,   4,   4
+            nn.ConvTranspose2d(nf, nf, 4, 2, 1), # nf,   8,   8
             nn.ReLU(True),
-            nn.ConvTranspose2d(32, 32, 4, 2, 1), # 32,  16,  16
+            nn.ConvTranspose2d(nf, nf, 4, 2, 1), # nf,  16,  16
             nn.ReLU(True),
-            nn.ConvTranspose2d(32, 32, 4, 2, 1), # 32,  32,  32
+            nn.ConvTranspose2d(nf, nf, 4, 2, 1), # nf,  32,  32
             nn.ReLU(True),
-            nn.ConvTranspose2d(32, 32, 4, 2, 1), # 32,  64,  64
+            nn.ConvTranspose2d(nf, nf, 4, 2, 1), # nf,  64,  64
             nn.ReLU(True),
-            nn.ConvTranspose2d(32, 1, 4, 2, 1)   # 32, 128, 128
-        )
+            nn.ConvTranspose2d(nf, nf, 4, 2, 1), # nf, 128, 128
+            nn.ReLU(True),
+            nn.ConvTranspose2d(nf, 1, 4, 2, 1)   # nf, 256, 256
+        )                                        #  1, 256, 256 (output)
 
         # initialize weights
         for block in self._modules:
@@ -474,6 +499,17 @@ def train_main(args):
         else:
             model = ConvAEModel(log_step=log_step)
 
+    elif args.type == 'uae':
+
+        if args.model is not None:
+            model_path = Path(args.model)
+            if not model_path.exists():
+                print(f'provided model {model_path} not found')
+                return
+            model = UAEModel.load_from_checkpoint(args.model, log_step=log_step)
+        else:
+            model = UAEModel(log_step=log_step)
+
     # train network
 
     logger = pl_loggers.TensorBoardLogger('runs/', name='')
@@ -506,6 +542,9 @@ def load_model_for_eval(model_file):
     elif model_type == 'convae':
         args = ConvAEModel.parse_model_name(model_file_name)
         model = ConvAEModel.load_from_checkpoint(str(model_file), **args)
+    elif model_type == 'uae':
+        args = UAEModel.parse_model_name(model_file_name)
+        model = UAEModel.load_from_checkpoint(str(model_file), **args)
     else:
         print(f'unrecognized model type {model_type} from model {model_file}')
         return None
@@ -582,7 +621,7 @@ if __name__ == '__main__':
 
     # train subparser
     train_parser = subparsers.add_parser('train', help='train connectivity CNN model on provided dataset')
-    train_parser.add_argument('type', type=str, help='model type to train', choices=['betavae', 'convae'])
+    train_parser.add_argument('type', type=str, help='model type to train', choices=['uae', 'betavae', 'convae'])
     train_parser.add_argument('dataset', type=str, help='dataset for training', nargs='+')
     train_parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train for')
     train_parser.add_argument('--batch-size', type=int, default=4, help='batch size for training')
