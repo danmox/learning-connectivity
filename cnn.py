@@ -149,7 +149,7 @@ class AEBase(pl.LightningModule):
             if self.best_model_path is not None:
                 self.best_model_path.unlink(missing_ok=True)
 
-            filename = self._ckpt_dir() / (self.model_name + f'valloss_{val_loss}_epoch_{self.current_epoch}.ckpt')
+            filename = self._ckpt_dir() / (self.model_name + f'valloss_{val_loss:.3e}_epoch_{self.current_epoch}.ckpt')
             self.trainer.save_checkpoint(filename, weights_only=True)
             self.best_model_path = filename
 
@@ -256,7 +256,7 @@ class BetaVAEModel(AEBase):
     def __init__(self, beta, z_dim, kld_weight=1.0, log_step=1, nf=48):
         super().__init__(log_step)
 
-        self.model_name = 'betavae_beta_{beta}_kld_{kld_weight}_z_{z_dim}_nf_{nf}_'
+        self.model_name = f'betavae_beta_{beta}_kld_{kld_weight}_z_{z_dim}_nf_{nf}_'
 
         self.beta = beta
         self.kld_weight = kld_weight
@@ -383,7 +383,7 @@ class ConvAEModel(AEBase):
     def __init__(self, log_step=1, nf=64):
         super().__init__(log_step)
 
-        self.model_name = 'convae_nf_{nf}_'
+        self.model_name = f'convae_nf_{nf}_'
 
         self.network = nn.Sequential(            #  1, 128, 128 (input)
             nn.Conv2d(1, nf, 8, 2, 3),           # nf,  64,  64
