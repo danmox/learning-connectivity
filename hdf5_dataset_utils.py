@@ -235,7 +235,7 @@ def generate_hdf5_dataset(args):
     # the write_queue which is served by a single processes that handles all
     # hdf5 database operations
 
-    num_processes = cpu_count() if jobs is None else jobs
+    num_processes = max(cpu_count()-1,1) if jobs is None else jobs
     sample_queue = Queue(maxsize=num_processes*2) # see NOTE below on queue size
     write_queue = Queue()
 
@@ -255,7 +255,7 @@ def generate_hdf5_dataset(args):
     # NOTE calls to sample_queue.put block when sample_queue is full; this is
     # the desired behavior since we may be generating tens of thousands of
     # samples and might not want to load them into memory all at the same time
-    print(f'generating {samples} samples using {num_processes} processes')
+    print(f'generating {samples} samples using {num_processes+1} processes')
     rng = np.random.default_rng()
     for mode in ('train','test'):
         it = 0

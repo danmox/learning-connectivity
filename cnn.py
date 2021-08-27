@@ -40,7 +40,7 @@ def load_model_from_checkpoint(model_file):
     # be sure to follow symlinks before parsing filename
     model_file_name = get_file_name(model_file)
 
-    model_type = model_file_name.split('__')[0] + '__'
+    model_type = model_file_name.split('__')[0]
     try:
         model = globals()[model_type].load_from_checkpoint(str(model_file))
     except:
@@ -91,13 +91,12 @@ def train_main(args):
         try:
             model = globals()[args.model](log_step=log_step, kld_weight=kld_weight)
         except:
-            print(f'unrecognized model type {args.type}')
+            print(f'unrecognized model type {args.model}')
             return
 
     # train network
 
-    return
-    logger = pl_loggers.TensorBoardLogger('runs/', name='')
+    logger = pl_loggers.TensorBoardLogger('runs/', name=model.model_name)
     trainer = pl.Trainer(logger=logger, max_epochs=args.epochs, weights_summary='top', gpus=gpus)
     trainer.fit(model, train_dataloader, val_dataloader)
 

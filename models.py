@@ -6,7 +6,7 @@ from models_base import UAEBase, BetaVAEBase, View
 # UAEModels
 #
 
-class UAEModel_256_nf32_8x8kern_fc256__(UAEBase):
+class UAEModel_256_nf32_8x8kern_fc256(UAEBase):
 
     def __init__(self, log_step=1, **kwargs):
         super().__init__(log_step)
@@ -56,7 +56,7 @@ class UAEModel_256_nf32_8x8kern_fc256__(UAEBase):
 #
 
 
-class BetaVAEModel_128_b1_z16_nf32_4x4kern__(BetaVAEBase):
+class BetaVAEModel_128_b1_z16_nf32_4x4kern(BetaVAEBase):
 
     def __init__(self, kld_weight=1, log_step=1):
         super().__init__(log_step)
@@ -107,7 +107,7 @@ class BetaVAEModel_128_b1_z16_nf32_4x4kern__(BetaVAEBase):
         )                                        #  1, 128, 128 (output)
 
 
-class BetaVAEModel_256_b1_z16_nf48_8x8kern__(BetaVAEBase):
+class BetaVAEModel_256_b1_z16_nf48_8x8kern(BetaVAEBase):
 
     def __init__(self, kld_weight=1, log_step=1):
         super().__init__(log_step)
@@ -162,7 +162,7 @@ class BetaVAEModel_256_b1_z16_nf48_8x8kern__(BetaVAEBase):
         )                                        #  1, 256, 256 (output)
 
 
-class BetaVAEModel_256_b1_z16_nf32_4x4kern__(BetaVAEBase):
+class BetaVAEModel_256_b1_z16_nf32_4x4kern(BetaVAEBase):
 
     def __init__(self, kld_weight=1, log_step=1):
         super().__init__(log_step)
@@ -222,7 +222,7 @@ class BetaVAEModel_256_b1_z16_nf32_4x4kern__(BetaVAEBase):
 #
 
 
-class ConvAEModel_nf64_8x8kern__(UAEBase):
+class ConvAEModel_nf64_8x8kern(UAEBase):
     def __init__(self, log_step=1, **kwargs):
         super().__init__(log_step)
         self.model_name = self.__class__.__name__

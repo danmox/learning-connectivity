@@ -1,5 +1,7 @@
+from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
@@ -38,7 +40,9 @@ class AEBase(pl.LightningModule):
         self.val_loss_best = float('Inf')
         self.best_model_path = None
 
-        self.model_name = ''
+        # names used for saving checkpoints
+        self.model_name = ''     # set by derived class
+        self.dataset_name = None
 
         # initialize network
         self.init_model()
@@ -73,10 +77,6 @@ class AEBase(pl.LightningModule):
 
         grid = torch.clamp(make_grid(img_list, nrow=3, padding=20, pad_value=1), 0.0, 1.0)
         self.logger.experiment.add_image(name, grid, self.current_epoch)
-
-    def _ckpt_dir(self):
-        log_dir = Path(self.trainer.weights_save_path) / self.logger.save_dir
-        return log_dir / f'version_{self.logger.version}' / 'checkpoints'
 
     def training_step(self, batch, batch_idx):
         # set aside some data to show learning progress
@@ -125,7 +125,20 @@ class AEBase(pl.LightningModule):
             if self.best_model_path is not None:
                 self.best_model_path.unlink(missing_ok=True)
 
-            filename = self._ckpt_dir() / (self.model_name + f'valloss_{val_loss:.3e}_epoch_{self.current_epoch}.ckpt')
+            # initialize self.dataset_name to a string of the fixed number of
+            # task agents used in each dataset
+            if self.dataset_name is None:
+                dataset_task_agent_counts = []
+                for dataset in self.trainer.model.train_dataloader.dataloader.dataset.hdf5_files:
+                    dataset_task_agent_counts.append(int(dataset.name.split('_')[3][:-1]))
+                    dataset_res = dataset.name[:4]  # assume all datasets have the same resolution, for now
+                dataset_task_agent_counts.sort()
+                self.dataset_name = dataset_res + 't'.join(map(str, dataset_task_agent_counts)) + 't'
+
+            timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+            stats_str = f'valloss_{val_loss:.3e}_epoch_{self.current_epoch}'
+            ckpt_name = '__'.join((self.model_name, self.dataset_name, stats_str, timestamp)) + '.ckpt'
+            filename = Path(self.logger.log_dir) / ckpt_name
             self.trainer.save_checkpoint(filename, weights_only=True)
             self.best_model_path = filename
 
