@@ -138,7 +138,7 @@ class AEBase(pl.LightningModule):
             timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
             stats_str = f'valloss_{val_loss:.3e}_epoch_{self.current_epoch}'
             ckpt_name = '__'.join((self.model_name, self.dataset_name, stats_str, timestamp)) + '.ckpt'
-            filename = Path(self.logger.log_dir) / ckpt_name
+            filename = Path(self.logger.log_dir) / 'checkpoints' / ckpt_name
             self.trainer.save_checkpoint(filename, weights_only=True)
             self.best_model_path = filename
 

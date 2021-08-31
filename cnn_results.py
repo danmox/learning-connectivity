@@ -216,6 +216,7 @@ def line_test(args):
             filename = f'line_{i:02d}_{model_name}.png'
             plt.savefig(filename, dpi=150)
             np.save(filename[:-4], cnn_img)
+            plt.close()
             print(f'saved image and array {filename[:-3]+"{png,npy}"}')
         else:
             plt.show()
@@ -270,6 +271,7 @@ def circle_test(args):
             filename = f'circle_{i:02d}_agents_{task_agents}_{model_name}.png'
             plt.savefig(filename, dpi=150)
             np.save(filename[:-4], cnn_img)
+            plt.close()
             print(f'saved image and array {filename[:-3]+"{png,npy}"}')
         else:
             plt.show()
@@ -432,7 +434,11 @@ def compute_stats_test(args):
         print(f'\rprocessing sample {i+1} of {dataset_len}\r', end="")
         task_img = hdf5_file[mode]['task_img'][i,...]
         x_task = hdf5_file[mode]['task_config'][i,...]
-        cnn_conn[i], x_cnn, cnn_dbm[i], _ = connectivity_from_CNN(task_img, model, x_task, p, args.draws)
+        try:
+            cnn_conn[i], x_cnn, cnn_dbm[i], _ = connectivity_from_CNN(task_img, model, x_task, p, args.draws)
+        except:
+            print(f'error processing sample {i} from dataset {dataset_file}. skipping.')
+            continue
         cnn_count[i] = x_cnn.shape[0]
         opt_count[i] = np.sum(~np.isnan(hdf5_file[mode]['comm_config'][i,:,0]))
     print(f'processed {dataset_len} test samples in {dataset_file.name}')
