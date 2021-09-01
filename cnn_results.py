@@ -172,12 +172,16 @@ def extract_128px_center_image(image, scale):
     return image[center_idx-64:center_idx+64, center_idx-64:center_idx+64]
 
 
-def line_test(args):
+def line_main(args):
+    line_test(args.model, args.draws, args.save)
 
-    model = load_model_for_eval(args.model)
+
+def line_test(model_file, draws=1, save=True):
+
+    model = load_model_for_eval(model_file)
     if model is None:
         return
-    model_name = get_file_name(args.model)
+    model_name = get_file_name(model_file)
 
     scale = scale_from_filename(model_name)
     params = cnn_image_parameters(scale)
@@ -188,7 +192,7 @@ def line_test(args):
         x_task = start_config + i*step
         img = lloyd.kernelized_config_img(x_task, params)
 
-        cnn_conn, x_cnn, cnn_L0, cnn_img = connectivity_from_CNN(img, model, x_task, params, args.draws)
+        cnn_conn, x_cnn, cnn_L0, cnn_img = connectivity_from_CNN(img, model, x_task, params, draws)
         opt_conn, x_opt = connectivity_from_opt(x_task, params)
 
         disp_img = extract_128px_center_image(np.maximum(cnn_img, img), scale)
@@ -212,7 +216,7 @@ def line_test(args):
 
         plt.tight_layout()
 
-        if args.save:
+        if save:
             filename = f'line_{i:02d}_{model_name}.png'
             plt.savefig(filename, dpi=150)
             np.save(filename[:-4], cnn_img)
@@ -222,24 +226,27 @@ def line_test(args):
             plt.show()
 
 
-def circle_test(args):
+def circle_main(args):
+    circle_test(args.model, args.agents, args.draws, args.save)
 
-    model = load_model_for_eval(args.model)
+
+def circle_test(model_file, task_agents=3, draws=1, save=True):
+
+    model = load_model_for_eval(model_file)
     if model is None:
         return
-    model_name = get_file_name(args.model)
+    model_name = get_file_name(model_file)
 
     scale = scale_from_filename(model_name)
     params = cnn_image_parameters(scale)
 
-    task_agents = 3 if args.agents is None else args.agents
     min_rad = (params['comm_range']+2.0) / (2.0 * np.sin(np.pi / task_agents))
     rads = np.linspace(min_rad, 60, 15)
     for i, rad in enumerate(rads):
         x_task = circle_points(rad, task_agents)
         img = lloyd.kernelized_config_img(x_task, params)
 
-        cnn_conn, x_cnn, cnn_L0, cnn_img = connectivity_from_CNN(img, model, x_task, params, args.draws)
+        cnn_conn, x_cnn, cnn_L0, cnn_img = connectivity_from_CNN(img, model, x_task, params, draws)
         opt_conn, x_opt = connectivity_from_opt(x_task, params)
 
         print(f'it {i+1:2d}: rad = {rad:.1f}m, cnn # = {x_cnn.shape[0]}, '
@@ -267,7 +274,7 @@ def circle_test(args):
 
         plt.tight_layout()
 
-        if args.save:
+        if save:
             filename = f'circle_{i:02d}_agents_{task_agents}_{model_name}.png'
             plt.savefig(filename, dpi=150)
             np.save(filename[:-4], cnn_img)
@@ -399,27 +406,31 @@ def connectivity_test(args):
     hdf5_file.close()
 
 
-def compute_stats_test(args):
+def compute_stats_main(args):
+    compute_stats_test(args.model, args.dataset, args.train, args.samples, args.nosave, args.draws)
 
-    model = load_model_for_eval(args.model)
+
+def compute_stats_test(model_file, dataset_file, train=False, samples=None, nosave=False, draws=1):
+
+    model = load_model_for_eval(model_file)
     if model is None:
         return
-    model_name = get_file_name(args.model)
+    model_name = get_file_name(model_file)
 
-    dataset_file = Path(args.dataset)
+    dataset_file = Path(dataset_file)
     if not dataset_file.exists():
         print(f'provided dataset {dataset_file} not found')
         return
     hdf5_file = h5py.File(dataset_file, mode='r')
 
-    mode = 'train' if args.train else 'test'
+    mode = 'train' if train else 'test'
     dataset_len = hdf5_file[mode]['task_img'].shape[0]
-    if args.samples is not None:
-        if args.samples > dataset_len:
-            print(f'requested sample count ({args.samples}) > dataset length ({dataset_len})')
+    if samples is not None:
+        if samples > dataset_len:
+            print(f'requested sample count ({samples}) > dataset length ({dataset_len})')
             return
         else:
-            dataset_len = args.samples
+            dataset_len = samples
 
     img_scale_factor = int(hdf5_file['train']['task_img'].shape[1] / 128)
     p = cnn_image_parameters(img_scale_factor)
@@ -434,16 +445,12 @@ def compute_stats_test(args):
         print(f'\rprocessing sample {i+1} of {dataset_len}\r', end="")
         task_img = hdf5_file[mode]['task_img'][i,...]
         x_task = hdf5_file[mode]['task_config'][i,...]
-        try:
-            cnn_conn[i], x_cnn, cnn_dbm[i], _ = connectivity_from_CNN(task_img, model, x_task, p, args.draws)
-        except:
-            print(f'error processing sample {i} from dataset {dataset_file}. skipping.')
-            continue
+        cnn_conn[i], x_cnn, cnn_dbm[i], _ = connectivity_from_CNN(task_img, model, x_task, p, draws)
         cnn_count[i] = x_cnn.shape[0]
         opt_count[i] = np.sum(~np.isnan(hdf5_file[mode]['comm_config'][i,:,0]))
     print(f'processed {dataset_len} test samples in {dataset_file.name}')
 
-    if not args.nosave:
+    if not nosave:
         timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
         filename = f'{dataset_len}_samples_{model_name}_{dataset_file.stem}_stats_{timestamp}'
         stats = np.vstack((opt_conn, cnn_conn, cnn_dbm, opt_count, cnn_count)).T
@@ -472,15 +479,21 @@ def compute_stats_test(args):
     print(f'absolute error: mean = {np.mean(absolute_error):.4f}, std = {np.std(absolute_error):.4f}')
     print(f'percent error:  mean = {100*np.mean(percent_error):.2f}%, std = {100*np.std(percent_error):.2f}%')
 
+    return filename + '.npy' if not nosave else None
 
-def parse_stats_test(args):
 
-    if len(args.stats) != len(args.labels):
-        print(f'number of stats files ({len(args.stats)}) must match number of labels ({len(args.labels)})')
+def parse_stats_main(args):
+    parse_stats_test(args.stats, args.labels, args.save)
+
+
+def parse_stats_test(stats_files, labels, save=True):
+
+    if len(stats_files) != len(labels):
+        print(f'number of stats files ({len(stats_files)}) must match number of labels ({len(labels)})')
         return
 
     stats = {}
-    for filename, label in zip(args.stats, args.labels):
+    for filename, label in zip(stats_files, labels):
         stats_file = Path(filename)
         if not stats_file.exists():
             print(f'{stats_file} does not exist')
@@ -490,35 +503,35 @@ def parse_stats_test(args):
 
     # histogram of transmit powers
 
-    powers = [np.round(stats[label]['power'], 1) for label in args.labels]
+    powers = [np.round(stats[label]['power'], 1) for label in labels]
     bins = np.arange(-53.8, -37.8, 1.0)
 
     fig, ax = plt.subplots()
-    ax.hist(powers, bins=bins, stacked=False, log=True, label=args.labels)
+    ax.hist(powers, bins=bins, stacked=False, log=True, label=labels)
     ax.legend(loc='best', fontsize=16)
     ax.set_xticks(np.arange(-53, -40, 3))
-    ax.set_xlabel('$L_0$ dBm', fontsize=18)
+    ax.set_xlabel('$P_T$ dBm', fontsize=18)
     ax.set_ylabel('# test cases', fontsize=18)
     ax.tick_params(axis='both', which='major', labelsize=18)
     plt.tight_layout()
 
-    if args.save:
+    if save:
         plt.savefig('power_histogram.pdf', dpi=150)
         print('saved power_histogram.pdf')
 
 
     # histogram of difference between CNN agent count and opt agent count
 
-    # agent_diffs = [(stats[l]['cnn_count'] - stats[l]['opt_count']).astype(int) for l in args.labels]
+    # agent_diffs = [(stats[l]['cnn_count'] - stats[l]['opt_count']).astype(int) for l in labels]
     agent_diffs = []
-    for label in args.labels:
+    for label in labels:
         mask = np.round(stats[label]['power'], 1) == -53.0  # all samples where CNN used default power
         agent_diffs += [(stats[label]['cnn_count'][mask] - stats[label]['opt_count'][mask]).astype(int)]
 
     bins = np.arange(np.min(np.hstack(agent_diffs)), np.max(np.hstack(agent_diffs))+2, 1)
 
     fig, ax = plt.subplots()
-    ax.hist(agent_diffs, bins=bins, stacked=False, log=True, align='left', label=args.labels)
+    ax.hist(agent_diffs, bins=bins, stacked=False, log=True, align='left', label=labels)
     ax.legend(loc='best', fontsize=18)
     ax.set_xticks(bins[:-1])
     ax.set_xlabel('# CNN agents $-$ # opt agents', fontsize=18)
@@ -526,11 +539,11 @@ def parse_stats_test(args):
     ax.tick_params(axis='both', which='major', labelsize=18)
     plt.tight_layout()
 
-    if args.save:
+    if save:
         plt.savefig('agent_count_histogram.pdf', dpi=150)
         print('saved agent_count_histogram.pdf')
-
-    plt.show()
+    else:
+        plt.show()
 
     print(f'power: mean = {np.mean(np.hstack(powers)):.2f}, std = {np.std(np.hstack(powers)):.3f}')
     print(f'diffs: mean = {np.mean(np.hstack(agent_diffs)):.4f}, std = {np.std(np.hstack(agent_diffs)):.3f}'
@@ -674,8 +687,7 @@ if __name__ == '__main__':
     circ_parser = subparsers.add_parser('circle', help='run circle test on provided model')
     circ_parser.add_argument('model', type=str, help='model to test')
     circ_parser.add_argument('--save', action='store_true')
-    circ_parser.add_argument('--view', action='store_true', help='turn on debugging plots')
-    circ_parser.add_argument('--agents', type=int, help='number of agents in the circle')
+    circ_parser.add_argument('--agents', type=int, default=3, help='number of agents in the circle')
     circ_parser.add_argument('--draws', metavar='N', type=int, default=1, help='use best of N model samples')
 
     extrema_parser = subparsers.add_parser('extrema', help='show examples where the provided model performs well/poorly on the given dataset')
@@ -724,9 +736,9 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     if args.command == 'line':
-        line_test(args)
+        line_main(args)
     elif args.command == 'circle':
-        circle_test(args)
+        circle_main(args)
     elif args.command == 'extrema':
         extrema_test(args)
     elif args.command == 'segment':
@@ -734,9 +746,9 @@ if __name__ == '__main__':
     elif args.command == 'connectivity':
         connectivity_test(args)
     elif args.command == 'compute_stats':
-        compute_stats_test(args)
+        compute_stats_main(args)
     elif args.command == 'parse_stats':
-        parse_stats_test(args)
+        parse_stats_main(args)
     elif args.command == 'variation':
         variation_test(args)
     elif args.command == 'time':

@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+from pathlib import Path
+import shutil
+
+from cnn import load_model_from_checkpoint, get_file_name
+from cnn_results import line_test, circle_test, compute_stats_test, parse_stats_test
+
+
+def main(args):
+
+    # try loading model to see if it is valid
+
+    model_file = Path(args.model).resolve()
+    model = load_model_from_checkpoint(model_file)
+    if model is None:
+        return
+
+    # create directory based on model name and version to store results
+
+    model_class = model_file.parent.parent.parent.name
+    model_ver = model_file.parent.parent.name
+    results_dir = (Path('results') / model_class / model_ver).resolve()
+
+    if not results_dir.exists():
+        results_dir.mkdir(parents=True)
+    elif len([item for item in results_dir.glob('*')]) > 0:
+        if args.force:
+            print(f'clearing existing results from {results_dir}')
+            shutil.rmtree(results_dir)
+            results_dir.mkdir(parents=True)
+        else:
+            print(f'results already exist in results/{model_class}/{model_ver}! use --force or -f to overwrite')
+            return
+
+    # get dataset directory before we change cwd
+
+    if args.px128:
+        dataset_dir = Path('data/128px').resolve()
+    else:
+        dataset_dir = Path('data/256px').resolve()
+
+    # change the working directory so that results get generated in the results directory
+
+    os.chdir(results_dir)
+
+    # run line/circle tests
+
+    if not args.noline:
+        print('\nrunning line test')
+        line_test(model_file)
+
+    if not args.nocircle:
+        print('\nrunning circle test')
+        circle_test(model_file)
+
+    # compute dataset statistics
+
+    if args.nostats:
+        return
+
+    datasets = []
+    labels = []
+    for i in range(2,7):
+        datasets += [item for item in dataset_dir.glob(f'*_{i}t_*.hdf5')]
+        labels.append(f'{i}t')
+
+    print('\ncomputing dataset stats')
+    stats_files = []
+    for dataset in datasets:
+        stats_files.append(compute_stats_test(model_file, dataset))
+
+    print('\nparsing dataset statistics')
+    parse_stats_test(stats_files, labels)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='run all tests for a given model checkpoint')
+    parser.add_argument('model', type=str, help='model to run tests on')
+    parser.add_argument('--px128', action='store_true', help='run tests on 128px datasets')
+    parser.add_argument('--force', '-f', action='store_true', help='overwrite existing results')
+    parser.add_argument('--noline', action='store_true', help='disable line test')
+    parser.add_argument('--nocircle' action='store_true', help='disable circle test')
+    parser.add_argument('--nostats', action='store_true', help='disable stats computation and parsing')
+
+    args = parser.parse_args()
+    main(args)
