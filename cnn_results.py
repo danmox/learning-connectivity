@@ -56,7 +56,7 @@ def connectivity_from_CNN(input_image, model, x_task, params, samples=1, viz=Fal
         conn[i] = ConnOpt.connectivity(params['channel_model'], x_task, x_comm[i])
 
         # increase transmit power until the network is connected
-        power[i] = params['channel_model'].L0
+        power[i] = params['channel_model'].t
         while variable_power and conn[i] < 5e-4:
             power[i] += 0.2
             cm = PiecewisePathLossModel(print_values=False, l0=power[i])
@@ -192,7 +192,7 @@ def line_test(model_file, draws=1, save=True):
         x_task = start_config + i*step
         img = lloyd.kernelized_config_img(x_task, params)
 
-        cnn_conn, x_cnn, cnn_L0, cnn_img = connectivity_from_CNN(img, model, x_task, params, draws)
+        cnn_conn, x_cnn, cnn_pwr, cnn_img = connectivity_from_CNN(img, model, x_task, params, draws)
         opt_conn, x_opt = connectivity_from_opt(x_task, params)
 
         disp_img = extract_128px_center_image(np.maximum(cnn_img, img), scale)
@@ -210,9 +210,9 @@ def line_test(model_file, draws=1, save=True):
 
         ax.legend(loc='best', fontsize=14)
 
-        pwr_diff = cnn_L0 - params['channel_model'].L0
-        pwr_str = 'DEF' if pwr_diff < 0.01 else f'+{pwr_diff:.1f} dBm'
-        ax.set_title(f'opt. ({opt_conn:.3f}, DEF), CNN ({cnn_conn:.3f}, {pwr_str})', fontsize=18)
+        pwr_diff = cnn_pwr - params['channel_model'].t
+        pwr_str = '0 dBm' if pwr_diff < 0.01 else f'{pwr_diff:.1f} dBm'
+        ax.set_title(f'opt. ({opt_conn:.3f}, 0 dBm), CNN ({cnn_conn:.3f}, {pwr_str})', fontsize=18)
 
         plt.tight_layout()
 
@@ -246,7 +246,7 @@ def circle_test(model_file, task_agents=3, draws=1, save=True):
         x_task = circle_points(rad, task_agents)
         img = lloyd.kernelized_config_img(x_task, params)
 
-        cnn_conn, x_cnn, cnn_L0, cnn_img = connectivity_from_CNN(img, model, x_task, params, draws)
+        cnn_conn, x_cnn, cnn_pwr, cnn_img = connectivity_from_CNN(img, model, x_task, params, draws)
         opt_conn, x_opt = connectivity_from_opt(x_task, params)
 
         print(f'it {i+1:2d}: rad = {rad:.1f}m, cnn # = {x_cnn.shape[0]}, '
@@ -268,9 +268,9 @@ def circle_test(model_file, task_agents=3, draws=1, save=True):
 
         ax.legend(loc='best', fontsize=14)
 
-        pwr_diff = cnn_L0 - params['channel_model'].L0
-        pwr_str = 'DEF' if pwr_diff < 0.01 else f'+{pwr_diff:.1f} dBm'
-        ax.set_title(f'opt. ({opt_conn:.3f}, DEF), CNN ({cnn_conn:.3f}, {pwr_str})', fontsize=18)
+        pwr_diff = cnn_pwr - params['channel_model'].t
+        pwr_str = '0 dBm' if pwr_diff < 0.01 else f'{pwr_diff:.1f} dBm'
+        ax.set_title(f'opt. ({opt_conn:.3f}, 0 dBm), CNN ({cnn_conn:.3f}, {pwr_str})', fontsize=18)
 
         plt.tight_layout()
 
@@ -377,7 +377,6 @@ def connectivity_test(args):
     img_scale_factor = int(hdf5_file['train']['task_img'].shape[1] / 128)
     params = cnn_image_parameters(img_scale_factor)
 
-    L0_default = params['channel_model'].L0
     cnn_conn, x_cnn, cnn_L0, cnn_img = connectivity_from_CNN(task_img, model, x_task, params, args.draws)
 
     ax = plt.subplot()
@@ -389,9 +388,9 @@ def connectivity_test(args):
     ax.legend(loc='best', fontsize=14)
     ax.tick_params(axis='both', which='major', labelsize=16)
 
-    pwr_diff = cnn_L0 - params['channel_model'].L0
-    pwr_str = 'DEF' if pwr_diff < 0.01 else f'+{pwr_diff:.1f} dBm'
-    ax.set_title(f'{idx}: opt. ({opt_conn:.3f}, DEF), CNN ({cnn_conn:.3f}, {pwr_str})', fontsize=14)
+    pwr_diff = cnn_L0 - params['channel_model'].t
+    pwr_str = '0 dBm' if pwr_diff < 0.01 else f'{pwr_diff:.1f} dBm'
+    ax.set_title(f'{idx}: opt. ({opt_conn:.3f}, 0 dBm), CNN ({cnn_conn:.3f}, {pwr_str})', fontsize=14)
 
     plt.tight_layout()
 
@@ -437,7 +436,7 @@ def compute_stats_test(model_file, dataset_file, train=False, samples=None, nosa
 
     opt_conn = hdf5_file[mode]['connectivity'][:dataset_len]
     cnn_conn = np.zeros_like(opt_conn)
-    cnn_dbm = np.zeros_like(opt_conn)
+    cnn_pwr = np.zeros_like(opt_conn)
     cnn_count = np.zeros_like(opt_conn, dtype=int)
     opt_count = np.zeros_like(opt_conn, dtype=int)
 
@@ -445,7 +444,7 @@ def compute_stats_test(model_file, dataset_file, train=False, samples=None, nosa
         print(f'\rprocessing sample {i+1} of {dataset_len}\r', end="")
         task_img = hdf5_file[mode]['task_img'][i,...]
         x_task = hdf5_file[mode]['task_config'][i,...]
-        cnn_conn[i], x_cnn, cnn_dbm[i], _ = connectivity_from_CNN(task_img, model, x_task, p, draws)
+        cnn_conn[i], x_cnn, cnn_pwr[i], _ = connectivity_from_CNN(task_img, model, x_task, p, draws)
         cnn_count[i] = x_cnn.shape[0]
         opt_count[i] = np.sum(~np.isnan(hdf5_file[mode]['comm_config'][i,:,0]))
     print(f'processed {dataset_len} test samples in {dataset_file.name}')
@@ -453,7 +452,7 @@ def compute_stats_test(model_file, dataset_file, train=False, samples=None, nosa
     if not nosave:
         timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
         filename = f'{dataset_len}_samples_{model_name}_{dataset_file.stem}_stats_{timestamp}'
-        stats = np.vstack((opt_conn, cnn_conn, cnn_dbm, opt_count, cnn_count)).T
+        stats = np.vstack((opt_conn, cnn_conn, cnn_pwr, opt_count, cnn_count)).T
         np.save(filename, stats)
         print(f'saved data to {filename}.npy')
     else:
@@ -462,7 +461,7 @@ def compute_stats_test(model_file, dataset_file, train=False, samples=None, nosa
     eps = 1e-10
     opt_feasible = opt_conn > eps
     cnn_feasible = cnn_conn > eps
-    cnn_morepower = cnn_dbm > p['channel_model'].L0
+    cnn_morepower = cnn_pwr > p['channel_model'].t
     both_feasible = opt_feasible & cnn_feasible
 
     agent_count_diff = cnn_count - opt_count
@@ -474,7 +473,7 @@ def compute_stats_test(model_file, dataset_file, train=False, samples=None, nosa
     print(f'{np.sum(cnn_feasible)}/{dataset_len} feasible with CNN')
     print(f'{np.sum(cnn_feasible & ~opt_feasible)} cases where only the CNN was feasible')
     print(f'{np.sum(cnn_morepower)} cases where the CNN required more transmit power')
-    print(f'cnn power use:  mean = {np.mean(cnn_dbm):.2f}, std = {np.std(cnn_dbm):.4f}')
+    print(f'cnn power use:  mean = {np.mean(cnn_pwr):.2f}, std = {np.std(cnn_pwr):.4f}')
     print(f'cnn agent diff: mean = {np.mean(agent_count_diff):.3f}, std = {np.std(agent_count_diff):.4f}')
     print(f'absolute error: mean = {np.mean(absolute_error):.4f}, std = {np.std(absolute_error):.4f}')
     print(f'percent error:  mean = {100*np.mean(percent_error):.2f}%, std = {100*np.std(percent_error):.2f}%')
@@ -504,12 +503,12 @@ def parse_stats_test(stats_files, labels, save=True):
     # histogram of transmit powers
 
     powers = [np.round(stats[label]['power'], 1) for label in labels]
-    bins = np.arange(-53.8, -37.8, 1.0)
+    bins = np.hstack(([0, 0.1], np.arange(1, 15, 1.0)))
 
     fig, ax = plt.subplots()
     ax.hist(powers, bins=bins, stacked=False, log=True, label=labels)
     ax.legend(loc='best', fontsize=16)
-    ax.set_xticks(np.arange(-53, -40, 3))
+    ax.set_xticks(np.arange(0, 15, 3))
     ax.set_xlabel('$P_T$ dBm', fontsize=18)
     ax.set_ylabel('# test cases', fontsize=18)
     ax.tick_params(axis='both', which='major', labelsize=18)
@@ -522,10 +521,10 @@ def parse_stats_test(stats_files, labels, save=True):
 
     # histogram of difference between CNN agent count and opt agent count
 
-    # agent_diffs = [(stats[l]['cnn_count'] - stats[l]['opt_count']).astype(int) for l in labels]
+    p = cnn_image_parameters()
     agent_diffs = []
     for label in labels:
-        mask = np.round(stats[label]['power'], 1) == -53.0  # all samples where CNN used default power
+        mask = np.round(stats[label]['power'], 1) == p['channel_model'].t  # all samples where CNN used default power
         agent_diffs += [(stats[label]['cnn_count'][mask] - stats[label]['opt_count'][mask]).astype(int)]
 
     bins = np.arange(np.min(np.hstack(agent_diffs)), np.max(np.hstack(agent_diffs))+2, 1)
@@ -678,6 +677,8 @@ def time_test(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='CNN network tests')
     subparsers = parser.add_subparsers(dest='command', required=True)
+
+    # TODO remove draws (since reparameterization is disabled in eval mode)
 
     line_parser = subparsers.add_parser('line', help='run line test on provided model')
     line_parser.add_argument('model', type=str, help='model to test')
