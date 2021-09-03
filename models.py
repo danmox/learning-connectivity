@@ -222,13 +222,13 @@ class BetaVAEModel_256_b1_z16_nf32_4x4kern(BetaVAEBase):
 #
 
 
-class ConvAEModel_nf64_8x8kern(UAEBase):
+class ConvAEModel_nf128_8x8kern(UAEBase):
     def __init__(self, log_step=1, **kwargs):
         super().__init__(log_step)
         self.model_name = self.__class__.__name__
 
     def init_model(self):
-        nf = 64
+        nf = 128
         self.network = nn.Sequential(            #  1, 128, 128 (input)
             nn.Conv2d(1, nf, 8, 2, 3),           # nf,  64,  64
             nn.LeakyReLU(0.2, True),
