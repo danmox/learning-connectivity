@@ -6,7 +6,7 @@ from pathlib import Path
 import shutil
 
 from cnn import load_model_from_checkpoint, get_file_name
-from cnn_results import line_test, circle_test, compute_stats_test, parse_stats_test
+from cnn_results import line_test, circle_test, compute_stats_test, parse_stats_test, connectivity_test
 
 
 def main(args):
@@ -55,6 +55,16 @@ def main(args):
     if not args.nocircle:
         print('\nrunning circle test')
         circle_test(model_file)
+
+    # generate results for large teams
+
+    if args.px128:
+        print(f'skipping large dataset results generation for 128px models')
+    else:
+        conn_dataset = dataset_dir / '256_connectivity_10000s_12t_20210827-152012.hdf5'
+        print('generating connectivity samples for a 12 agent team')
+        for s in (15, 236, 260, 720, 739, 866, 894, 1246):
+            connectivity_test(model_file, conn_dataset, sample=s, save=True)
 
     # compute dataset statistics
 

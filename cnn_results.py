@@ -346,28 +346,32 @@ def extrema_test(args):
     hdf5_file.close()
 
 
-def connectivity_test(args):
+def connectivity_main(args):
+    connectivity_test(args.model, args.dataset, args.sample, args.save, args.train)
 
-    model = load_model_for_eval(args.model)
+
+def connectivity_test(model_file, dataset, sample=None, save=True, train=False):
+
+    model = load_model_for_eval(model_file)
     if model is None:
         return
 
-    mode = 'train' if args.train else 'test'
+    mode = 'train' if train else 'test'
 
-    dataset_file = Path(args.dataset)
+    dataset_file = Path(dataset)
     if not dataset_file.exists():
         print(f'provided dataset {dataset_file} not found')
         return
     hdf5_file = h5py.File(dataset_file, mode='r')
     dataset_len = hdf5_file[mode]['task_img'].shape[0]
 
-    if args.sample is None:
+    if sample is None:
         idx = np.random.randint(dataset_len)
-    elif args.sample >= dataset_len:
-        print(f'sample index {args.sample} out of dataset index range: [0-{dataset_len-1}]')
+    elif sample >= dataset_len:
+        print(f'sample index {sample} out of dataset index range: [0-{dataset_len-1}]')
         return
     else:
-        idx = args.sample
+        idx = sample
 
     task_img = hdf5_file[mode]['task_img'][idx,...]
     opt_conn = hdf5_file[mode]['connectivity'][idx]
@@ -378,7 +382,7 @@ def connectivity_test(args):
     img_scale_factor = int(hdf5_file['train']['task_img'].shape[1] / 128)
     params = cnn_image_parameters(img_scale_factor)
 
-    cnn_conn, x_cnn, cnn_L0, cnn_img = connectivity_from_CNN(task_img, model, x_task, params, args.draws)
+    cnn_conn, x_cnn, cnn_L0, cnn_img = connectivity_from_CNN(task_img, model, x_task, params)
 
     ax = plt.subplot()
     plot_image(np.maximum(task_img, cnn_img), params, ax)
@@ -395,13 +399,14 @@ def connectivity_test(args):
 
     plt.tight_layout()
 
-    if not args.save:
+    if not save:
         print(f'showing sample {idx} from {dataset_file.name}')
         plt.show()
     else:
         filename = str(idx) + '_' + dataset_file.stem + '.png'
         plt.savefig(filename, dpi=150)
         print(f'saved image {filename}')
+    plt.close()
 
     hdf5_file.close()
 
@@ -841,7 +846,7 @@ if __name__ == '__main__':
     elif args.command == 'segment':
         segment_test(args)
     elif args.command == 'connectivity':
-        connectivity_test(args)
+        connectivity_main(args)
     elif args.command == 'compute_stats':
         compute_stats_main(args)
     elif args.command == 'parse_stats':
