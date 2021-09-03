@@ -26,6 +26,9 @@ class AEBase(pl.LightningModule):
     def __init__(self, log_step):
         super().__init__()
 
+        # set learning rate
+        self.learning_rate = 1e-4
+
         # cache some data to show learning progress
         self.train_progress_batch = None
         self.val_progress_batch = None
@@ -162,7 +165,7 @@ class AEBase(pl.LightningModule):
         return self.evaluate(torch.from_numpy(x)).cpu().detach().numpy()
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=1e-4)
+        optimizer = optim.Adam(self.parameters(), lr=self.learning_rate)
         return optimizer
 
 
