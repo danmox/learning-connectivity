@@ -3,6 +3,7 @@
 import argparse
 import os
 from pathlib import Path
+import re
 import shutil
 
 from cnn import load_model_from_checkpoint, get_file_name
@@ -28,9 +29,12 @@ def main(args):
         results_dir.mkdir(parents=True)
     elif len([item for item in results_dir.glob('*')]) > 0:
         if args.force:
-            print(f'clearing existing results from {results_dir}')
-            shutil.rmtree(results_dir)
-            results_dir.mkdir(parents=True)
+            if args.clean:
+                print(f'clearing existing results from {results_dir}')
+                shutil.rmtree(results_dir)
+                results_dir.mkdir(parents=True)
+            else:
+                print(f'overwriting results in {results_dir}')
         else:
             print(f'results already exist in results/{model_class}/{model_ver}! use --force or -f to overwrite')
             return
@@ -42,49 +46,66 @@ def main(args):
     else:
         dataset_dir = Path('data/256px').resolve()
 
+    # determine what tests to run
+
+    run_line = args.line
+    run_circle = args.circle
+    run_compute = args.computestats
+    run_plot = args.plotstats
+    run_scale = args.scalefigs
+    if not (run_line or run_circle or run_compute or run_plot or run_scale):
+        run_line = run_circle = run_compute = run_plot = run_scale = True
+
     # change the working directory so that results get generated in the results directory
 
     os.chdir(results_dir)
 
     # run line/circle tests
 
-    if not args.noline:
+    if run_line:
         print('\nrunning line test')
         line_test(model_file)
 
-    if not args.nocircle:
+    if run_circle:
         print('\nrunning circle test')
         circle_test(model_file)
 
-    # generate results for large teams
-
-    if args.px128:
-        print(f'skipping large dataset results generation for 128px models')
-    else:
-        conn_dataset = dataset_dir / '256_connectivity_10000s_12t_20210827-152012.hdf5'
-        print('generating connectivity samples for a 12 agent team')
-        for s in (15, 236, 260, 720, 739, 866, 894, 1246):
-            connectivity_test(model_file, conn_dataset, sample=s, save=True)
-
     # compute dataset statistics
 
-    if args.nostats:
-        return
+    if run_compute:
+        datasets = [item for item in dataset_dir.glob(f'*.hdf5')]
+        for dataset in datasets:
+            print(f'computing stats with:\nmodel: {model_file}\ndataset: {dataset}')
+            compute_stats_test(model_file, dataset)
 
-    datasets = []
-    labels = []
-    for i in range(2,7):
-        datasets += [item for item in dataset_dir.glob(f'*_{i}t_*.hdf5')]
-        labels.append(f'{i}t')
+    if run_plot:
+        stats_files = [item for item in results_dir.glob('*_stats.npy')]
+        if len(stats_files) == 0:
+            print(f'no stats files found in {results_dir}')
+            return
 
-    print('\ncomputing dataset stats')
-    stats_files = []
-    for dataset in datasets:
-        print(f'computing stats with:\nmodel: {model_file}\ndataset: {dataset}')
-        stats_files.append(compute_stats_test(model_file, dataset))
+        labels = []
+        for stats_file in stats_files:
+            labels.append(re.match('^.*_([0-9]+t)_', str(stats_file)).group(1))
 
-    print('\nparsing dataset statistics')
-    parse_stats_test(stats_files, labels)
+        # sort the files according to their label so that they appear in order in the figure
+        combined = list(zip(stats_files, labels))
+        combined.sort(key=lambda a : a[1][:-1])
+        stats_files, labels = zip(*combined)
+
+        print('\nparsing dataset statistics')
+        parse_stats_test(stats_files, labels)
+
+    # generate results for large teams
+
+    if run_scale:
+        if args.px128:
+            print(f'skipping large dataset results generation for 128px models')
+        else:
+            conn_dataset = dataset_dir / '256_connectivity_10000s_12t_20210827-152012.hdf5'
+            print('generating connectivity samples for a 12 agent team')
+            for s in (15, 236, 260, 720, 739, 866, 894, 1246):
+                connectivity_test(model_file, conn_dataset, sample=s, save=True)
 
 
 if __name__ == '__main__':
@@ -92,9 +113,12 @@ if __name__ == '__main__':
     parser.add_argument('model', type=str, help='model to run tests on')
     parser.add_argument('--px128', action='store_true', help='run tests on 128px datasets')
     parser.add_argument('--force', '-f', action='store_true', help='overwrite existing results')
-    parser.add_argument('--noline', action='store_true', help='disable line test')
-    parser.add_argument('--nocircle', action='store_true', help='disable circle test')
-    parser.add_argument('--nostats', action='store_true', help='disable stats computation and parsing')
+    parser.add_argument('--clean', '-c', action='store_true', help='clear out existing results')
+    parser.add_argument('--line', action='store_true', help='run line test')
+    parser.add_argument('--circle', action='store_true', help='run circle test')
+    parser.add_argument('--computestats', action='store_true', help='run stats computation')
+    parser.add_argument('--plotstats', action='store_true', help='run stats parsing')
+    parser.add_argument('--scalefigs', action='store_true', help='generate scalability figures')
 
     args = parser.parse_args()
     main(args)
