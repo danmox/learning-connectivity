@@ -1,23 +1,24 @@
-from pathlib import Path
-from hdf5_dataset_utils import cnn_image_parameters, plot_image
-from math import ceil
-from cnn import load_model_for_eval, get_file_name
+import argparse
+import datetime
+import h5py
+import os
+import time
+import torch
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-import argparse
 import numpy as np
+
+from pathlib import Path
+from math import ceil
+from multiprocessing import Process, Queue, cpu_count
+
+from cnn import load_model_for_eval, get_file_name
 from connectivity_maximization import circle_points
+from hdf5_dataset_utils import ConnectivityDataset, cnn_image_parameters, plot_image
 from mid.connectivity_planner.src.connectivity_planner.connectivity_optimization import ConnectivityOpt as ConnOpt, round_sf
 from mid.connectivity_planner.src.connectivity_planner.channel_model import PiecewisePathLossModel
 from mid.connectivity_planner.src.connectivity_planner.feasibility import connect_graph, adaptive_bbx, min_feasible_sample
 from mid.connectivity_planner.src.connectivity_planner import lloyd
-
-import torch
-from hdf5_dataset_utils import ConnectivityDataset
-import h5py
-import os
-import time
-import datetime
 
 
 def scale_from_filename(filename):
@@ -59,7 +60,7 @@ def connectivity_from_CNN(input_image, model, x_task, params, samples=1, viz=Fal
         power[i] = params['channel_model'].t
         while variable_power and conn[i] < 5e-4:
             power[i] += 0.2
-            cm = PiecewisePathLossModel(print_values=False, l0=power[i])
+            cm = PiecewisePathLossModel(print_values=False, t=power[i])
             conn[i] = ConnOpt.connectivity(cm, x_task, x_comm[i])
 
     # return the best result
@@ -405,11 +406,101 @@ def connectivity_test(args):
     hdf5_file.close()
 
 
+def stats_computer(dataset_params, sample_queue, results_queue):
+
+    for sample in iter(sample_queue.get, None):
+
+        idx = sample['idx']
+        cnn_img = sample['cnn_img']
+        x_task = sample['x_task']
+
+        # TODO sometimes models don't place any agents... need to handle this better
+        try:
+            x_cnn = compute_coverage(cnn_img, dataset_params)
+        except:
+            print(f'compute_coverate(...) failed for sample {idx}. skipping')
+            continue
+
+        cnn_conn = ConnOpt.connectivity(dataset_params['channel_model'], x_task, x_cnn)
+
+        # increase transmit power until the network is connected
+        cnn_power = dataset_params['channel_model'].t
+        while cnn_conn < 5e-4:
+            cnn_power += 0.2
+            cm = PiecewisePathLossModel(print_values=False, t=cnn_power)
+            cnn_conn = ConnOpt.connectivity(cm, x_task, x_cnn)
+
+        out_dict = {}
+        out_dict['idx'] = idx
+        out_dict['cnn_conn'] = cnn_conn
+        out_dict['cnn_count'] = x_cnn.shape[0]
+        out_dict['cnn_power'] = cnn_power
+        out_dict['opt_conn'] = sample['opt_conn']
+        out_dict['opt_count'] = sample['opt_count']
+
+        results_queue.put(out_dict)
+
+
+def stats_compiler(params, results_queue):
+
+    dataset_len = params['dataset_len']
+    filename = params['filename']
+    nosave = params['nosave']
+    default_transmit_power = params['default_transmit_power']
+
+    opt_conn = np.zeros((dataset_len, 1))
+    cnn_conn = np.zeros_like(opt_conn)
+    cnn_power = np.zeros_like(opt_conn)
+    cnn_count = np.zeros_like(opt_conn, dtype=int)
+    opt_count = np.zeros_like(opt_conn, dtype=int)
+
+    processed_count = 1
+    for result in iter(results_queue.get, None):
+        idx = result['idx']
+        opt_conn[idx] = result['opt_conn']
+        cnn_conn[idx] = result['cnn_conn']
+        cnn_power[idx] = result['cnn_power']
+        cnn_count[idx] = result['cnn_count']
+        opt_count[idx] = result['opt_count']
+        print(f'\rprocessed sample {processed_count} of {dataset_len}\r', end="")
+        processed_count += 1
+    print(f'finished processing {dataset_len} samples')
+
+    if not nosave:
+        stats = np.hstack((opt_conn, cnn_conn, cnn_power, opt_count, cnn_count))
+        np.save(filename, stats)
+        print(f'saved data to {filename}.npy')
+    else:
+        print(f'NOT saving data')
+
+    eps = 1e-10
+    opt_feasible = opt_conn > eps
+    cnn_feasible = cnn_conn > eps
+    cnn_morepower = cnn_power > default_transmit_power
+    both_feasible = opt_feasible & cnn_feasible
+
+    agent_count_diff = cnn_count - opt_count
+
+    absolute_error = opt_conn[both_feasible] - cnn_conn[both_feasible]
+    percent_error = absolute_error / opt_conn[both_feasible]
+
+    print(f'{np.sum(opt_feasible)}/{dataset_len} feasible with optimization')
+    print(f'{np.sum(cnn_feasible)}/{dataset_len} feasible with CNN')
+    print(f'{np.sum(cnn_feasible & ~opt_feasible)} cases where only the CNN was feasible')
+    print(f'{np.sum(cnn_morepower)} cases where the CNN required more transmit power')
+    print(f'cnn power use:  mean = {np.mean(cnn_power):.2f}, std = {np.std(cnn_power):.4f}')
+    print(f'cnn agent diff: mean = {np.mean(agent_count_diff):.3f}, std = {np.std(agent_count_diff):.4f}')
+    print(f'absolute error: mean = {np.mean(absolute_error):.4f}, std = {np.std(absolute_error):.4f}')
+    print(f'percent error:  mean = {100*np.mean(percent_error):.2f}%, std = {100*np.std(percent_error):.2f}%')
+
+
 def compute_stats_main(args):
-    compute_stats_test(args.model, args.dataset, args.train, args.samples, args.nosave, args.draws)
+    compute_stats_test(args.model, args.dataset, args.train, args.samples, args.nosave, args.jobs)
 
 
-def compute_stats_test(model_file, dataset_file, train=False, samples=None, nosave=False, draws=1):
+def compute_stats_test(model_file, dataset_file, train=False, samples=None, nosave=False, jobs=None):
+
+    # load model and dataset
 
     model = load_model_for_eval(model_file)
     if model is None:
@@ -431,54 +522,59 @@ def compute_stats_test(model_file, dataset_file, train=False, samples=None, nosa
         else:
             dataset_len = samples
 
+    results_filename = f'{dataset_len}_samples_{model_name}_{dataset_file.stem}_stats'
+
+    # configure mutli-processing
+
+    num_processes = max(cpu_count()-2, 1) if jobs is None else jobs
+    sample_queue = Queue(maxsize=num_processes*2)
+    results_queue = Queue()
+
     img_scale_factor = int(hdf5_file['train']['task_img'].shape[1] / 128)
-    p = cnn_image_parameters(img_scale_factor)
+    dataset_params = cnn_image_parameters(img_scale_factor)
 
-    opt_conn = hdf5_file[mode]['connectivity'][:dataset_len]
-    cnn_conn = np.zeros_like(opt_conn)
-    cnn_pwr = np.zeros_like(opt_conn)
-    cnn_count = np.zeros_like(opt_conn, dtype=int)
-    opt_count = np.zeros_like(opt_conn, dtype=int)
+    results_proc_params = {}
+    results_proc_params['dataset_len'] = dataset_len
+    results_proc_params['filename'] = results_filename
+    results_proc_params['nosave'] = nosave
+    results_proc_params['default_transmit_power'] = dataset_params['channel_model'].t
+    results_proc = Process(target=stats_compiler, args=(results_proc_params, results_queue))
+    results_proc.start()
 
+    worker_procs = []
+    for i in range(num_processes):
+        p = Process(target=stats_computer, args=(dataset_params, sample_queue, results_queue))
+        worker_procs.append(p)
+        p.start()
+
+    # load the sample queue until all test cases have been processed
+
+    print(f'processing {dataset_len} samples with {num_processes} processes')
     for i in range(dataset_len):
-        print(f'\rprocessing sample {i+1} of {dataset_len}\r', end="")
-        task_img = hdf5_file[mode]['task_img'][i,...]
-        x_task = hdf5_file[mode]['task_config'][i,...]
-        cnn_conn[i], x_cnn, cnn_pwr[i], _ = connectivity_from_CNN(task_img, model, x_task, p, draws)
-        cnn_count[i] = x_cnn.shape[0]
-        opt_count[i] = np.sum(~np.isnan(hdf5_file[mode]['comm_config'][i,:,0]))
-    print(f'processed {dataset_len} test samples in {dataset_file.name}')
 
-    if not nosave:
-        timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
-        filename = f'{dataset_len}_samples_{model_name}_{dataset_file.stem}_stats_{timestamp}'
-        stats = np.vstack((opt_conn, cnn_conn, cnn_pwr, opt_count, cnn_count)).T
-        np.save(filename, stats)
-        print(f'saved data to {filename}.npy')
-    else:
-        print(f'NOT saving data')
+        # do inference
+        input_image = hdf5_file[mode]['task_img'][i,...]
+        cnn_image = model.evaluate(torch.from_numpy(input_image)).cpu().detach().numpy()
 
-    eps = 1e-10
-    opt_feasible = opt_conn > eps
-    cnn_feasible = cnn_conn > eps
-    cnn_morepower = cnn_pwr > p['channel_model'].t
-    both_feasible = opt_feasible & cnn_feasible
+        sample_dict = {}
+        sample_dict['idx'] = i
+        sample_dict['cnn_img'] = cnn_image
+        sample_dict['x_task'] = hdf5_file[mode]['task_config'][i,...]
+        sample_dict['opt_conn'] = hdf5_file[mode]['connectivity'][i,...]
+        sample_dict['opt_count'] = np.sum(~np.isnan(hdf5_file[mode]['comm_config'][i,:,0]))
+        sample_queue.put(sample_dict)
 
-    agent_count_diff = cnn_count - opt_count
+    # each worker process exits once it receives a None
+    for i in range(num_processes):
+        sample_queue.put(None)
+    for proc in worker_procs:
+        proc.join()
 
-    absolute_error = opt_conn[both_feasible] - cnn_conn[both_feasible]
-    percent_error = absolute_error / opt_conn[both_feasible]
+    # finally, the writer process also exits once it receives a None
+    results_queue.put(None)
+    results_proc.join()
 
-    print(f'{np.sum(opt_feasible)}/{dataset_len} feasible with optimization')
-    print(f'{np.sum(cnn_feasible)}/{dataset_len} feasible with CNN')
-    print(f'{np.sum(cnn_feasible & ~opt_feasible)} cases where only the CNN was feasible')
-    print(f'{np.sum(cnn_morepower)} cases where the CNN required more transmit power')
-    print(f'cnn power use:  mean = {np.mean(cnn_pwr):.2f}, std = {np.std(cnn_pwr):.4f}')
-    print(f'cnn agent diff: mean = {np.mean(agent_count_diff):.3f}, std = {np.std(agent_count_diff):.4f}')
-    print(f'absolute error: mean = {np.mean(absolute_error):.4f}, std = {np.std(absolute_error):.4f}')
-    print(f'percent error:  mean = {100*np.mean(percent_error):.2f}%, std = {100*np.std(percent_error):.2f}%')
-
-    return filename + '.npy' if not nosave else None
+    return results_filename + '.npy' if not nosave else None
 
 
 def parse_stats_main(args):
@@ -717,7 +813,7 @@ if __name__ == '__main__':
     comp_parser.add_argument('--train', action='store_true', help='run stats on training data partition')
     comp_parser.add_argument('--samples', type=int, help='number of samples to process; if omitted all samples in the dataset will be used')
     comp_parser.add_argument('--nosave', action='store_true', help='don\'t save connectivity data')
-    comp_parser.add_argument('--draws', metavar='N', type=int, default=1, help='use best of N model samples')
+    comp_parser.add_argument('--jobs', '-j', type=int, metavar='N', help='number of worker processes to use; default is # of CPU cores')
 
     parse_parser = subparsers.add_parser('parse_stats', help='parse performance statistics saved by compute_stats')
     parse_parser.add_argument('--stats', type=str, help='stats.npy files generated from compute_stats', nargs='+')
