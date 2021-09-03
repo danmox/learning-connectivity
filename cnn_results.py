@@ -604,12 +604,12 @@ def parse_stats_test(stats_files, labels, save=True):
     # histogram of transmit powers
 
     powers = [np.round(stats[label]['power'], 1) for label in labels]
-    bins = np.hstack(([0, 0.1], np.arange(1, 15, 1.0)))
+    bins = np.hstack(([-0.9, 0.1], np.arange(1.1, 10.1, 1.0)))
 
     fig, ax = plt.subplots()
     ax.hist(powers, bins=bins, stacked=False, log=True, label=labels)
     ax.legend(loc='best', fontsize=16)
-    ax.set_xticks(np.arange(0, 15, 3))
+    ax.set_xticks(np.arange(0, 10, 3))
     ax.set_xlabel('$P_T$ dBm', fontsize=18)
     ax.set_ylabel('# test cases', fontsize=18)
     ax.tick_params(axis='both', which='major', labelsize=18)
