@@ -70,6 +70,7 @@ def main(args):
     print('\ncomputing dataset stats')
     stats_files = []
     for dataset in datasets:
+        print(f'computing stats with:\nmodel: {model_file}\ndataset: {dataset}')
         stats_files.append(compute_stats_test(model_file, dataset))
 
     print('\nparsing dataset statistics')
@@ -82,7 +83,7 @@ if __name__ == '__main__':
     parser.add_argument('--px128', action='store_true', help='run tests on 128px datasets')
     parser.add_argument('--force', '-f', action='store_true', help='overwrite existing results')
     parser.add_argument('--noline', action='store_true', help='disable line test')
-    parser.add_argument('--nocircle' action='store_true', help='disable circle test')
+    parser.add_argument('--nocircle', action='store_true', help='disable circle test')
     parser.add_argument('--nostats', action='store_true', help='disable stats computation and parsing')
 
     args = parser.parse_args()
