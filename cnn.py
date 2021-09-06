@@ -13,8 +13,9 @@ from pytorch_lightning import loggers as pl_loggers
 import torch
 from torch.utils.data import DataLoader
 
-from hdf5_dataset_utils import ConnectivityDataset
+from hdf5_dataset_utils import ConnectivityDataset, cnn_image_parameters
 from models import *
+from mid.connectivity_planner.src.connectivity_planner.feasibility import connect_graph
 
 
 def count_parameters(model):
@@ -112,34 +113,47 @@ def eval_main(args):
         print(f'provided dataset {dataset_file} not found')
         return
     hdf5_file = h5py.File(dataset_file, mode='r')
-    dataset_len = hdf5_file['test']['task_img'].shape[0]
+
+    mode = 'train' if args.train else 'test'
+    dataset_len = hdf5_file[mode]['task_img'].shape[0]
 
     if args.sample is None:
         idx = np.random.randint(dataset_len)
     elif args.sample > dataset_len:
-        print(f'provided sample index {args.sample} out of range of dataset with length {dataset_len}')
+        print(f'provided sample index {args.sample} out of range of {mode} dataset with length {dataset_len}')
         return
     else:
         idx = args.sample
 
-    input_image = hdf5_file['test']['task_img'][idx,...]
-    output_image = hdf5_file['test']['comm_img'][idx,...]
+    input_image = hdf5_file[mode]['task_img'][idx,...]
+    output_image = hdf5_file[mode]['comm_img'][idx,...]
     model_image = model.inference(input_image)
+
+    if args.arrays:
+        task_config = hdf5_file[mode]['task_config'][idx,...]
+        print(f'task_config:\n{task_config}')
+        mst_config = connect_graph(task_config, cnn_image_parameters()['comm_range'])
+        print(f'msg_config:\n{mst_config}')
+        comm_config = hdf5_file[mode]['comm_config'][idx,...]
+        print(f'comm_config:\n{comm_config[~np.isnan(comm_config[:,0])]}')
 
     if not args.save:
         print(f'showing sample {idx} from {dataset_file.name}')
         ax = plt.subplot(1,3,1)
-        ax.imshow(input_image)
+        ax.imshow(input_image.T)
+        ax.invert_yaxis()
         ax.get_xaxis().set_visible(False)
         ax.get_yaxis().set_visible(False)
         ax.set_title('input')
         ax = plt.subplot(1,3,2)
-        ax.imshow(output_image)
+        ax.imshow(output_image.T)
+        ax.invert_yaxis()
         ax.get_xaxis().set_visible(False)
         ax.get_yaxis().set_visible(False)
         ax.set_title('target')
         ax = plt.subplot(1,3,3)
-        ax.imshow(model_image)
+        ax.imshow(model_image.T)
+        ax.invert_yaxis()
         ax.get_xaxis().set_visible(False)
         ax.get_yaxis().set_visible(False)
         ax.set_title('output')
@@ -155,7 +169,7 @@ def eval_main(args):
             ax = plt.Axes(fig, [0., 0., 1., 1.])
             ax.set_axis_off()
             fig.add_axes(ax)
-            ax.imshow(img, aspect='equal')
+            ax.imshow(np.flipud(img.T), aspect='equal', cmap='Greys')
             filename = '_'.join((str(idx), name, dataset_file.stem)) + '.png'
             plt.savefig(filename, dpi=150)
             print(f'saved image {filename}')
@@ -181,6 +195,8 @@ if __name__ == '__main__':
     eval_parser.add_argument('dataset', type=str, help='dataset to draw samples from')
     eval_parser.add_argument('--sample', type=int, help='sample to perform inference on')
     eval_parser.add_argument('--save', action='store_true', help='save intput, output and target images')
+    eval_parser.add_argument('--train', action='store_true', help='select sample from training partition')
+    eval_parser.add_argument('--arrays', action='store_true', help='print task/comm. agent arrays')
 
     args = parser.parse_args()
 
