@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
 
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib as mpl
-from pathlib import Path
+import argparse
+import datetime
 import shutil
 import time
-import datetime
-import h5py
-import argparse
-from multiprocessing import Queue, Process, cpu_count
-import shutil
 from math import ceil
+from multiprocessing import Process, Queue, cpu_count
+from pathlib import Path
+
+import h5py
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from mid.connectivity_planner.src.connectivity_planner import lloyd
 from mid.connectivity_planner.src.connectivity_planner.connectivity_optimization import ConnectivityOpt as ConnOpt
 from mid.connectivity_planner.src.connectivity_planner.channel_model import PiecewisePathLossModel
 from mid.connectivity_planner.src.connectivity_planner.feasibility import adaptive_bbx, min_feasible_sample
-from mid.connectivity_planner.src.connectivity_planner import lloyd
+
 
 class ConnectivityDataset(Dataset):
     """connectivity dataset"""
@@ -139,7 +140,7 @@ def write_hdf5_image_data(params, filename, queue):
         total_saved += 1
         duration_str = human_readable_duration(time.time()-t0)
         msg = console_width_str(f'saved sample {total_saved} of {total_samples}, elapsed time: {duration_str}')
-        print('\r' + msg + '\r', end="")
+        print('\r' + msg + '\r', end='')
 
     print(console_width_str(f'generated {total_samples} samples in {duration_str}'))
     print(f'saved data to: {hdf5_file.filename}')
@@ -173,23 +174,28 @@ def generate_hdf5_image_data(params, sample_queue, writer_queue):
         writer_queue.put(out_dict)
 
 
-def cnn_image_parameters():
+def cnn_image_parameters(img_scale_factor=1):
     p = {}
-    p['comm_range'] = 30.0-1.0         # (almost) the maximum range of communication hardware
-    p['img_res'] = 128
-    p['kernel_std'] = p['img_res'] * 0.05   # size of Gaussian kernel used to mark agent locations
-    p['meters_per_pixel'] = 1.25       # metric distance of each pixel in the image
-    p['min_area_factor'] = 0.4         # minimum density of agents to sample
+    p['comm_range'] = 30.0-1.0              # (almost) the maximum range of communication hardware
+    p['img_res'] = 128 * img_scale_factor
+    p['kernel_std'] = 6.4                   # size of Gaussian kernel used to mark agent locations (derived from: 128*0.05)
+    p['meters_per_pixel'] = 1.25            # metric distance of each pixel in the image
+    p['min_area_factor'] = 0.4              # minimum density of agents to sample
     p = lloyd.compute_paramaters(p)
-    # TODO set cutoff distance from p['comm_range']
     p['channel_model'] = PiecewisePathLossModel(print_values=False)
 
     return p
 
 
-def generate_hdf5_dataset(task_agents, samples, jobs):
+def generate_hdf5_dataset(args):
 
-    params = cnn_image_parameters() # fixed image generation parameters
+    # unpack args
+    task_agents = args.task_count
+    samples = args.samples
+    jobs = args.jobs
+    image_scale = args.scale
+
+    params = cnn_image_parameters(image_scale) # fixed image generation parameters
     params['task_agents'] = task_agents # so that params can be passed around with all necessary args
 
     train_samples = int(0.85 * samples)
@@ -215,10 +221,10 @@ def generate_hdf5_dataset(task_agents, samples, jobs):
     # than once in a second
     timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
     filename = Path(__file__).resolve().parent / 'data' / \
-        f"connectivity_{samples}s_{task_agents}t_{timestamp}.hdf5"
+        f"{params['img_res']}_connectivity_{samples}s_{task_agents}t_{timestamp}.hdf5"
 
     # print dataset info to console
-    res = params['img_size'][0]
+    res = params['img_res']
     print(f"using {res}x{res} images with {params['meters_per_pixel']} meters/pixel "
           f"and {task_agents} task agents")
 
@@ -229,7 +235,7 @@ def generate_hdf5_dataset(task_agents, samples, jobs):
     # the write_queue which is served by a single processes that handles all
     # hdf5 database operations
 
-    num_processes = cpu_count() if jobs is None else jobs
+    num_processes = max(cpu_count()-1,1) if jobs is None else jobs
     sample_queue = Queue(maxsize=num_processes*2) # see NOTE below on queue size
     write_queue = Queue()
 
@@ -249,7 +255,7 @@ def generate_hdf5_dataset(task_agents, samples, jobs):
     # NOTE calls to sample_queue.put block when sample_queue is full; this is
     # the desired behavior since we may be generating tens of thousands of
     # samples and might not want to load them into memory all at the same time
-    print(f'generating {samples} samples using {num_processes} processes')
+    print(f'generating {samples} samples using {num_processes+1} processes')
     rng = np.random.default_rng()
     for mode in ('train','test'):
         it = 0
@@ -276,21 +282,34 @@ def generate_hdf5_dataset(task_agents, samples, jobs):
     hdf5_proc.join()
 
 
-def plot_image(image, params, ax):
-    img_extents = params['img_side_len'] / 2.0 * np.asarray([-1,1,1,-1])
-    ax.imshow(image.T, extent=img_extents)
-    ax.invert_yaxis()
+def plot_image(ax, image, x_task=None, x_opt=None, x_cnn=None, params=None):
+
+    # fetch params to set scale of image axes
+    if params is None:
+        img_scale = image.shape[0] // 128
+        params = cnn_image_parameters(img_scale)
+
+    ax.imshow(np.flipud(image.T), extent=params['bbx'], cmap='gist_gray_r')
+
+    if x_task is not None:
+        ax.plot(x_task[:,0], x_task[:,1], 'o', ms=10, color=(1,0,0), label='task')
+    if x_opt is not None:
+        ax.plot(x_opt[:,0], x_opt[:,1], 'o', ms=12, mew=3, color=(0,0.7,0), fillstyle='none', label=f'opt ({x_opt.shape[0]})')
+    if x_cnn is not None:
+        ax.plot(x_cnn[:,0], x_cnn[:,1], 'x', ms=12, mew=3, color=(0,0,1), label=f'CNN ({x_cnn.shape[0]})')
 
 
-def view_hdf5_dataset(dataset_file, samples):
+
+def view_hdf5_dataset(args):
+
+    # unpack args
+    dataset_file = args.dataset
+    samples = args.samples
 
     dataset = Path(dataset_file)
     if not dataset.exists():
         print(f'the dataset {dataset} was not found')
         return
-
-    # parameters related to the dataset
-    params = cnn_image_parameters()
 
     hdf5_file = h5py.File(dataset, mode='r')
 
@@ -298,7 +317,10 @@ def view_hdf5_dataset(dataset_file, samples):
     for count in [hdf5_file[m]['task_img'].shape[0] for m in ('train','test')]:
         sample_idcs.append(np.random.choice(count, (min(count, samples),), False))
 
-    bbx = params['img_size'][0] * params['meters_per_pixel'] / 2.0 * np.asarray([-1,1,-1,1])
+    # parameters related to the dataset
+    img_scale_factor = int(hdf5_file['train']['task_img'].shape[1] / 128)
+    params = cnn_image_parameters(img_scale_factor)
+
     for idcs, mode in zip(sample_idcs, ('train','test')):
         idcs.sort()
         print(f"plotting {len(idcs)} {mode}ing samples: {', '.join(map(str, idcs))}")
@@ -310,18 +332,18 @@ def view_hdf5_dataset(dataset_file, samples):
             ax = plt.subplot(2,2,1)
             ax.plot(task_config[:,0], task_config[:,1], 'g.', ms=4)
             ax.axis('scaled')
-            ax.axis(bbx)
+            ax.axis(params['bbx'])
             ax = plt.subplot(2,2,2)
-            plot_image(hdf5_file[mode]['task_img'][idx,...], params, ax)
+            plot_image(ax, hdf5_file[mode]['task_img'][idx,...], params=params)
 
             # network agent configuration
             ax = plt.subplot(2,2,3)
             ax.plot(task_config[:,0], task_config[:,1], 'g.', ms=4)
             ax.plot(comm_config[:,0], comm_config[:,1], 'r.', ms=4)
             ax.axis('scaled')
-            ax.axis(bbx)
+            ax.axis(params['bbx'])
             ax = plt.subplot(2,2,4)
-            plot_image(hdf5_file[mode]['comm_img'][idx,...], params, ax)
+            plot_image(ax, hdf5_file[mode]['comm_img'][idx,...], params=params)
 
             plt.suptitle(f'{mode}ing sample {i+1}/{len(idcs)} with index {idx}', fontsize=14)
             plt.show()
@@ -338,6 +360,7 @@ if __name__ == '__main__':
     gen_parser = subparsers.add_parser('generate', help='generate connectivity dataset')
     gen_parser.add_argument('samples', type=int, help='number of samples to generate')
     gen_parser.add_argument('task_count', type=int, help='number of task agents')
+    gen_parser.add_argument('--scale', type=int, default=1, help='image size used for dagaset generation: 128*scale')
     gen_parser.add_argument('--jobs', '-j', type=int, metavar='N',
                             help='number of worker processes to use; default is # of CPU cores')
 
@@ -348,11 +371,11 @@ if __name__ == '__main__':
                              help='number of samples to view')
     view_parser.add_argument('--dpi', type=int, default=150, help='dpi to use for figure')
 
-    p = parser.parse_args()
+    args = parser.parse_args()
 
-    if p.command == 'generate':
-        generate_hdf5_dataset(p.task_count, p.samples, p.jobs)
-    elif p.command == 'view':
+    if args.command == 'generate':
+        generate_hdf5_dataset(args)
+    elif args.command == 'view':
         # helps the figures to be readable on hidpi screens
-        mpl.rcParams['figure.dpi'] = p.dpi
-        view_hdf5_dataset(p.dataset, p.samples)
+        mpl.rcParams['figure.dpi'] = args.dpi
+        view_hdf5_dataset(args)
