@@ -169,7 +169,7 @@ def eval_main(args):
             ax = plt.Axes(fig, [0., 0., 1., 1.])
             ax.set_axis_off()
             fig.add_axes(ax)
-            ax.imshow(np.flipud(img.T), aspect='equal', cmap='Greys')
+            ax.imshow(np.flipud(img.T), aspect='equal', cmap='gist_gray_r')
             filename = '_'.join((str(idx), name, dataset_file.stem)) + '.png'
             plt.savefig(filename, dpi=150)
             print(f'saved image {filename}')

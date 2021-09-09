@@ -282,10 +282,22 @@ def generate_hdf5_dataset(args):
     hdf5_proc.join()
 
 
-def plot_image(image, params, ax):
-    img_extents = params['img_side_len'] / 2.0 * np.asarray([-1,1,1,-1])
-    ax.imshow(image.T, extent=img_extents)
-    ax.invert_yaxis()
+def plot_image(ax, image, x_task=None, x_opt=None, x_cnn=None, params=None):
+
+    # fetch params to set scale of image axes
+    if params is None:
+        img_scale = image.shape[0] // 128
+        params = cnn_image_parameters(img_scale)
+
+    ax.imshow(np.flipud(image.T), extent=params['bbx'], cmap='gist_gray_r')
+
+    if x_task is not None:
+        ax.plot(x_task[:,0], x_task[:,1], 'o', ms=10, color=(1,0,0), label='task')
+    if x_opt is not None:
+        ax.plot(x_opt[:,0], x_opt[:,1], 'o', ms=12, mew=3, color=(0,0.7,0), fillstyle='none', label=f'opt ({x_opt.shape[0]})')
+    if x_cnn is not None:
+        ax.plot(x_cnn[:,0], x_cnn[:,1], 'x', ms=12, mew=3, color=(0,0,1), label=f'CNN ({x_cnn.shape[0]})')
+
 
 
 def view_hdf5_dataset(args):
@@ -322,7 +334,7 @@ def view_hdf5_dataset(args):
             ax.axis('scaled')
             ax.axis(params['bbx'])
             ax = plt.subplot(2,2,2)
-            plot_image(hdf5_file[mode]['task_img'][idx,...], params, ax)
+            plot_image(ax, hdf5_file[mode]['task_img'][idx,...], params=params)
 
             # network agent configuration
             ax = plt.subplot(2,2,3)
@@ -331,7 +343,7 @@ def view_hdf5_dataset(args):
             ax.axis('scaled')
             ax.axis(params['bbx'])
             ax = plt.subplot(2,2,4)
-            plot_image(hdf5_file[mode]['comm_img'][idx,...], params, ax)
+            plot_image(ax, hdf5_file[mode]['comm_img'][idx,...], params=params)
 
             plt.suptitle(f'{mode}ing sample {i+1}/{len(idcs)} with index {idx}', fontsize=14)
             plt.show()

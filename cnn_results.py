@@ -27,6 +27,7 @@ def scale_from_filename(filename):
         return 2
     return 1
 
+
 def compute_peaks(image, threshold_val=80, blur_sigma=1, region_size=7, view=False):
     out_peaks, blurred_img = lloyd.compute_peaks(image, threshold_val, blur_sigma, region_size)
     if view:
@@ -107,7 +108,7 @@ def compute_coverage(image, params, viz=False):
             p.set_cmap('jet')
 
             fig, ax = plt.subplots()
-            plot_image(image, params, ax)
+            plot_image(ax, image, params=params)
             ax.add_collection(p)
             ax.add_collection(mpl.collections.PatchCollection(circle_patches, ec='r', fc='none'))
             ax.plot(peaks[:,0], peaks[:,1], 'rx', label='peaks')
@@ -159,9 +160,9 @@ def segment_test(args):
 
     fig, ax = plt.subplots()
     if args.isolate:
-        plot_image(model_image, params, ax)
+        plot_image(ax, model_image, params=params)
     else:
-        plot_image(np.maximum(model_image, input_image), params, ax)
+        plot_image(ax, np.maximum(model_image, input_image), params=params)
     ax.plot(coverage_points[:,0], coverage_points[:,1], 'ro')
     # ax.axis('off')
     plt.show()
@@ -187,33 +188,25 @@ def line_test(model_file, draws=1, save=True):
     scale = scale_from_filename(model_name)
     params = cnn_image_parameters(scale)
 
-    start_config = np.asarray([[20., 0.], [-20., 0.]])
-    step = 2*np.asarray([[1., 0.],[-1., 0.]])
-    for i in range(22):
-        x_task = start_config + i*step
+    dists = np.linspace(40, 120, args.steps)
+    for i, dist in enumerate(dists):
+        x_task = np.asarray([[-dist,0], [dist,0]]) / 2
         img = lloyd.kernelized_config_img(x_task, params)
 
         cnn_conn, x_cnn, cnn_pwr, cnn_img = connectivity_from_CNN(img, model, x_task, params, draws)
         opt_conn, x_opt = connectivity_from_opt(x_task, params)
 
         disp_img = extract_128px_center_image(np.maximum(cnn_img, img), scale)
-        img_extents = params['img_side_len'] / 2.0 * np.asarray([-1,1,1,-1]) / scale
 
         fig, ax = plt.subplots()
-        ax.imshow(disp_img.T, extent=img_extents)
-        ax.invert_yaxis()
-        ax.plot(x_task[:,0], x_task[:,1], 'ro', label='task')
-        ax.plot(x_opt[:,0], x_opt[:,1], 'rx', label=f'opt ({x_opt.shape[0]})', ms=9, mew=3)
-        ax.plot(x_cnn[:,0], x_cnn[:,1], 'bx', label=f'CNN ({x_cnn.shape[0]})', ms=9, mew=3)
-
-        ax.set_yticks(np.arange(-80, 80, 20))
-        ax.tick_params(axis='both', which='major', labelsize=16)
-
+        plot_image(ax, disp_img, x_task=x_task, x_opt=x_opt, x_cnn=x_cnn)
+        ax.set_yticks(np.arange(-60, 80, 30))
+        ax.tick_params(axis='both', which='major', labelsize=14)
         ax.legend(loc='best', fontsize=14)
 
         pwr_diff = cnn_pwr - params['channel_model'].t
-        pwr_str = '0 dBm' if pwr_diff < 0.01 else f'{pwr_diff:.1f} dBm'
-        ax.set_title(f'opt. ({opt_conn:.3f}, 0 dBm), CNN ({cnn_conn:.3f}, {pwr_str})', fontsize=18)
+        pwr_str = '0' if pwr_diff < 0.01 else f'{pwr_diff:.1f}'
+        ax.set_title(f'opt. ({opt_conn:.3f}, 0) | CNN ({cnn_conn:.3f}, {pwr_str})', fontsize=18)
 
         plt.tight_layout()
 
@@ -242,7 +235,7 @@ def circle_test(model_file, task_agents=3, draws=1, save=True):
     params = cnn_image_parameters(scale)
 
     min_rad = (params['comm_range']+2.0) / (2.0 * np.sin(np.pi / task_agents))
-    rads = np.linspace(min_rad, 60, 15)
+    rads = np.linspace(min_rad, 60, args.steps)
     for i, rad in enumerate(rads):
         x_task = circle_points(rad, task_agents)
         img = lloyd.kernelized_config_img(x_task, params)
@@ -250,28 +243,21 @@ def circle_test(model_file, task_agents=3, draws=1, save=True):
         cnn_conn, x_cnn, cnn_pwr, cnn_img = connectivity_from_CNN(img, model, x_task, params, draws)
         opt_conn, x_opt = connectivity_from_opt(x_task, params)
 
-        print(f'it {i+1:2d}: rad = {rad:.1f}m, cnn # = {x_cnn.shape[0]}, '
-              f'cnn conn = {cnn_conn:.4f}, opt # = {x_opt.shape[0]}, '
-              f'opt conn = {opt_conn:.4f}')
+        # print(f'it {i+1:2d}: rad = {rad:.1f}m, cnn # = {x_cnn.shape[0]}, '
+        #       f'cnn conn = {cnn_conn:.4f}, opt # = {x_opt.shape[0]}, '
+        #       f'opt conn = {opt_conn:.4f}')
 
         disp_img = extract_128px_center_image(np.maximum(cnn_img, img), scale)
-        img_extents = params['img_side_len'] / 2.0 * np.asarray([-1,1,1,-1]) / scale
 
         fig, ax = plt.subplots()
-        ax.imshow(disp_img.T, extent=img_extents)
-        ax.invert_yaxis()
-        ax.plot(x_task[:,0], x_task[:,1], 'ro', label='task')
-        ax.plot(x_opt[:,0], x_opt[:,1], 'rx', label=f'opt ({x_opt.shape[0]})', ms=9, mew=3)
-        ax.plot(x_cnn[:,0], x_cnn[:,1], 'bx', label=f'CNN ({x_cnn.shape[0]})', ms=9, mew=3)
-
-        ax.set_yticks(np.arange(-80, 80, 20))
-        ax.tick_params(axis='both', which='major', labelsize=16)
-
+        plot_image(ax, disp_img, x_task=x_task, x_opt=x_opt, x_cnn=x_cnn)
+        ax.set_yticks(np.arange(-60, 80, 30))
+        ax.tick_params(axis='both', which='major', labelsize=14)
         ax.legend(loc='best', fontsize=14)
 
         pwr_diff = cnn_pwr - params['channel_model'].t
-        pwr_str = '0 dBm' if pwr_diff < 0.01 else f'{pwr_diff:.1f} dBm'
-        ax.set_title(f'opt. ({opt_conn:.3f}, 0 dBm), CNN ({cnn_conn:.3f}, {pwr_str})', fontsize=18)
+        pwr_str = '0' if pwr_diff < 0.01 else f'{pwr_diff:.1f}'
+        ax.set_title(f'opt. ({opt_conn:.3f}, 0) | CNN ({cnn_conn:.3f}, {pwr_str})', fontsize=18)
 
         plt.tight_layout()
 
@@ -320,23 +306,20 @@ def extrema_test(args):
     output_image = hdf5_file['test']['comm_img'][extreme_idx,...]
     model_image = model.inference(input_image)
 
-    img_scale_factor = int(hdf5_file['train']['task_img'].shape[1] / 128)
-    params = cnn_image_parameters(img_scale_factor)
-
     extrema_type = 'best' if args.best else 'worst'
     print(f'{extrema_type} sample is {extreme_idx}{20*" "}')
     ax = plt.subplot(1,3,1)
-    plot_image(input_image, params, ax)
+    plot_image(ax, input_image)
     ax.get_xaxis().set_visible(False)
     ax.get_yaxis().set_visible(False)
     ax.set_title('input')
     ax = plt.subplot(1,3,2)
-    plot_image(output_image, params, ax)
+    plot_image(ax, output_image)
     ax.get_xaxis().set_visible(False)
     ax.get_yaxis().set_visible(False)
     ax.set_title('target')
     ax = plt.subplot(1,3,3)
-    plot_image(model_image, params, ax)
+    plot_image(ax, model_image)
     ax.get_xaxis().set_visible(False)
     ax.get_yaxis().set_visible(False)
     ax.set_title('output')
@@ -379,23 +362,19 @@ def connectivity_test(model_file, dataset, sample=None, save=True, train=False):
     x_opt = hdf5_file[mode]['comm_config'][idx,...]
     x_opt = x_opt[~np.isnan(x_opt[:,0])]
 
-    img_scale_factor = int(hdf5_file['train']['task_img'].shape[1] / 128)
+    img_scale_factor = hdf5_file['train']['task_img'].shape[1] // 128
     params = cnn_image_parameters(img_scale_factor)
 
     cnn_conn, x_cnn, cnn_L0, cnn_img = connectivity_from_CNN(task_img, model, x_task, params)
 
     ax = plt.subplot()
-    plot_image(np.maximum(task_img, cnn_img), params, ax)
-    ax.plot(x_task[:,0], x_task[:,1], 'ro', label='task')
-    ax.plot(x_opt[:,0], x_opt[:,1], 'rx', label=f'opt ({x_opt.shape[0]})', ms=9, mew=3)
-    ax.plot(x_cnn[:,0], x_cnn[:,1], 'bx', label=f'CNN ({x_cnn.shape[0]})', ms=9, mew=3)
-    # ax.set_yticks(np.arange(-80, 80, 20))
+    plot_image(ax, np.maximum(task_img, cnn_img), x_task=x_task, x_opt=x_opt, x_cnn=x_cnn, params=params)
     ax.legend(loc='best', fontsize=14)
     ax.tick_params(axis='both', which='major', labelsize=16)
 
     pwr_diff = cnn_L0 - params['channel_model'].t
-    pwr_str = '0 dBm' if pwr_diff < 0.01 else f'{pwr_diff:.1f} dBm'
-    ax.set_title(f'{idx}: opt. ({opt_conn:.3f}, 0 dBm), CNN ({cnn_conn:.3f}, {pwr_str})', fontsize=14)
+    pwr_str = '0' if pwr_diff < 0.01 else f'{pwr_diff:.1f}'
+    ax.set_title(f'{idx}: opt. ({opt_conn:.3f}, 0), CNN ({cnn_conn:.3f}, {pwr_str})', fontsize=14)
 
     plt.tight_layout()
 
@@ -785,12 +764,14 @@ if __name__ == '__main__':
     line_parser.add_argument('model', type=str, help='model to test')
     line_parser.add_argument('--save', action='store_true')
     line_parser.add_argument('--draws', metavar='N', type=int, default=1, help='use best of N model samples')
+    line_parser.add_argument('--steps', metavar='S', type=int, default=20, help='number of steps to take between min and max radius')
 
     circ_parser = subparsers.add_parser('circle', help='run circle test on provided model')
     circ_parser.add_argument('model', type=str, help='model to test')
     circ_parser.add_argument('--save', action='store_true')
-    circ_parser.add_argument('--agents', type=int, default=3, help='number of agents in the circle')
+    circ_parser.add_argument('--agents', metavar='A', type=int, default=3, help='number of agents in the circle')
     circ_parser.add_argument('--draws', metavar='N', type=int, default=1, help='use best of N model samples')
+    circ_parser.add_argument('--steps', metavar='S', type=int, default=15, help='number of steps to take between min and max radius')
 
     extrema_parser = subparsers.add_parser('extrema', help='show examples where the provided model performs well/poorly on the given dataset')
     extrema_parser.add_argument('model', type=str, help='model to test')

@@ -49,7 +49,7 @@ def plot(original_filename, script_filename):
     _, x_opt = connectivity_from_opt(x_task, params)
 
     fig, ax = plt.subplots()
-    plot_image(np.maximum(input_img, cnn_img), params, ax)
+    plot_image(ax, np.maximum(input_img, cnn_img), params=params)
     ax.plot(x_task[:, 0], x_task[:, 1], "ro", label="task")
     ax.plot(
         x_opt[:, 0], x_opt[:, 1], "rx", label=f"opt ({x_opt.shape[0]})", ms=9, mew=3
