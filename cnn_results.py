@@ -1,7 +1,5 @@
 import argparse
-import datetime
 import h5py
-import os
 import time
 import torch
 import matplotlib.pyplot as plt
@@ -150,7 +148,6 @@ def segment_test(args):
         idx = args.sample
 
     input_image = hdf5_file['test']['task_img'][idx,...]
-    output_image = hdf5_file['test']['comm_img'][idx,...]
     model_image = model.inference(input_image)
 
     img_scale_factor = int(hdf5_file['train']['task_img'].shape[1] / 128)
@@ -286,11 +283,11 @@ def extrema_test(args):
     if args.best:
         extrema_test = lambda l : l < extreme_loss
         extreme_loss = np.Inf
-        print(f'seeking the best performing sample')
+        print('seeking the best performing sample')
     else:
         extrema_test = lambda l : l > extreme_loss
         extreme_loss = 0.0
-        print(f'seeking the worst performing sample')
+        print('seeking the worst performing sample')
     with torch.no_grad():
         print(f'looping through {len(dataset)} test samples in {dataset_file}')
         for i in range(len(dataset)):
@@ -455,7 +452,7 @@ def stats_compiler(params, results_queue):
         np.save(filename, stats)
         print(f'saved data to {filename}.npy')
     else:
-        print(f'NOT saving data')
+        print('NOT saving data')
 
     eps = 1e-10
     opt_feasible = opt_conn > eps
@@ -693,7 +690,6 @@ def time_test(args):
     model = load_model_for_eval(args.model)
     if model is None:
         return
-    model_name = get_file_name(args.model)
 
     min_agents = 3
     max_agents = 18
@@ -723,7 +719,7 @@ def time_test(args):
 
             # run CNN
             t0 = time.time()
-            cnn_image = model.inference(input_image)
+            model.inference(input_image)
             connectivity_from_CNN(input_image, model, x_task, params, args.draws)
             dt = time.time() - t0
             cnn_time[team_idx, sample_idx] = dt
