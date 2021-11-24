@@ -4,11 +4,13 @@ import time
 import torch
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+import networkx as nx
 import numpy as np
 
-from pathlib import Path
 from math import ceil
 from multiprocessing import Process, Queue, cpu_count
+from pathlib import Path
+from scipy import spatial
 
 from cnn import load_model_for_eval, get_file_name
 from connectivity_maximization import circle_points
@@ -37,7 +39,8 @@ def compute_peaks(image, threshold_val=80, blur_sigma=1, region_size=7, view=Fal
     return out_peaks
 
 
-def connectivity_from_CNN(input_image, model, x_task, params, samples=1, viz=False, variable_power=True):
+def connectivity_from_CNN(input_image, model, x_task, params, samples=1, viz=False,
+                          variable_power=True, min_config=True):
 
     conn = np.zeros((samples,))
     power = np.zeros((samples,))
@@ -62,11 +65,34 @@ def connectivity_from_CNN(input_image, model, x_task, params, samples=1, viz=Fal
             cm = PiecewisePathLossModel(print_values=False, t=power[i])
             conn[i] = ConnOpt.connectivity(cm, x_task, x_comm[i])
 
+        # remove redundant agents (i.e. approximate steiner tree over graph)
+        # TODO maybe just remove cycles in the graph?
+
+        if min_config:
+            cm = PiecewisePathLossModel(print_values=False, t=power[i])
+            config = np.vstack((x_task, x_comm[i]))
+            rate, _ = cm.predict(config)
+            edm = spatial.distance_matrix(config, config)
+            edm[rate < 1e-4] = 0
+
+            graph = nx.from_numpy_matrix(edm)
+            terminals = list(range(x_task.shape[0]))
+            st = nx.algorithms.approximation.steiner_tree(graph, terminals)
+
+            st_nodes = list(st.nodes)
+            comm_idcs = np.asarray(st_nodes[x_task.shape[0]:]) - x_task.shape[0]
+            # import pdb;pdb.set_trace()
+            x_comm[i] = x_comm[i][comm_idcs,:]
+            conn[i] = ConnOpt.connectivity(cm, x_task, x_comm[i])
+
     # return the best result
     # prioritize: lowest power > fewer agents > highest connectivity
-    mask = power == np.min(power)
-    mask &= agents == np.min(agents[mask])
-    best_idx = np.where(conn == np.max(conn[mask]))[0][0]
+    if samples == 1:
+        best_idx = 0
+    else:
+        mask = power == np.min(power)
+        mask &= agents == np.min(agents[mask])
+        best_idx = np.where(conn == np.max(conn[mask]))[0][0]
 
     return conn[best_idx], x_comm[best_idx], power[best_idx], cnn_imgs[best_idx]
 
@@ -327,10 +353,10 @@ def extrema_test(args):
 
 
 def connectivity_main(args):
-    connectivity_test(args.model, args.dataset, args.sample, args.save, args.train)
+    connectivity_test(args.model, args.dataset, args.sample, args.save, args.train, args.nost)
 
 
-def connectivity_test(model_file, dataset, sample=None, save=True, train=False):
+def connectivity_test(model_file, dataset, sample=None, save=True, train=False, nost=False):
 
     model = load_model_for_eval(model_file)
     if model is None:
@@ -362,7 +388,7 @@ def connectivity_test(model_file, dataset, sample=None, save=True, train=False):
     img_scale_factor = hdf5_file['train']['task_img'].shape[1] // 128
     params = cnn_image_parameters(img_scale_factor)
 
-    cnn_conn, x_cnn, cnn_L0, cnn_img = connectivity_from_CNN(task_img, model, x_task, params)
+    cnn_conn, x_cnn, cnn_L0, cnn_img = connectivity_from_CNN(task_img, model, x_task, params, min_config=not nost)
 
     ax = plt.subplot()
     plot_image(ax, np.maximum(task_img, cnn_img), x_task=x_task, x_opt=x_opt, x_cnn=x_cnn, params=params)
@@ -788,6 +814,7 @@ if __name__ == '__main__':
     conn_parser.add_argument('--save', action='store_true')
     conn_parser.add_argument('--train', action='store_true', help='draw sample from training data')
     conn_parser.add_argument('--draws', metavar='N', type=int, default=1, help='use best of N model samples')
+    conn_parser.add_argument('--nost', action='store_true', help='disable removing redundant agents')
 
     comp_parser = subparsers.add_parser('compute_stats', help='compute performance statistics for a dataset')
     comp_parser.add_argument('model', type=str, help='model')
