@@ -39,8 +39,33 @@ def compute_peaks(image, threshold_val=80, blur_sigma=1, region_size=7, view=Fal
     return out_peaks
 
 
+def connected_components(adjacency_matrix):
+    nodes = list(range(adjacency_matrix.shape[0]))
+    visited = adjacency_matrix.shape[0]*[False]
+    components = []
+
+    while len(nodes) > 0:
+
+        frontier = [nodes[0]]
+        comp = []
+        while len(frontier) > 0:
+            node = frontier.pop()
+            if visited[node]:
+                continue
+            nodes.remove(node)
+            comp.append(node)
+            visited[node] = True
+            frontier += np.nonzero(adjacency_matrix[node,:])[0].tolist()
+
+        components.append(comp)
+
+    return components
+
+
 def connectivity_from_CNN(input_image, model, x_task, params, samples=1, viz=False,
                           variable_power=True, min_config=True):
+
+    tol = 5e-4  # connectivity threshold
 
     conn = np.zeros((samples,))
     power = np.zeros((samples,))
@@ -55,34 +80,52 @@ def connectivity_from_CNN(input_image, model, x_task, params, samples=1, viz=Fal
         x_comm += [compute_coverage(cnn_imgs[i], params, viz=viz)]
         agents[i] = x_comm[i].shape[0]
 
-        # find connectivity
-        conn[i] = ConnOpt.connectivity(params['channel_model'], x_task, x_comm[i])
-
-        # increase transmit power until the network is connected
-        power[i] = params['channel_model'].t
-        while variable_power and conn[i] < 5e-4:
-            power[i] += 0.2
-            cm = PiecewisePathLossModel(print_values=False, t=power[i])
-            conn[i] = ConnOpt.connectivity(cm, x_task, x_comm[i])
-
-        # remove redundant agents (i.e. approximate steiner tree over graph)
-        # TODO maybe just remove cycles in the graph?
-
+        # remove extranious communication agents
         if min_config:
-            cm = PiecewisePathLossModel(print_values=False, t=power[i])
+
             config = np.vstack((x_task, x_comm[i]))
-            rate, _ = cm.predict(config)
+            rate = params['channel_model'].predict(config)[0]
             edm = spatial.distance_matrix(config, config)
             edm[rate < 1e-4] = 0
+            cc = connected_components(rate)
+            while len(cc) > 1:
+
+                # find the two connected components as well as the points in each
+                # that are closest together
+                cc_inds = []
+                cc_min_dist = None
+                config_inds = []
+                for k in range(len(cc)):
+                    for j in range(k+1,len(cc)):
+                        dists = spatial.distance_matrix(config[cc[k],:], config[cc[j],:])
+                        if cc_min_dist is None or dists.min() < cc_min_dist:
+                            cc_min_dist = dists.min()
+                            ind1, ind2 = np.where(dists == dists.min())
+                            cc_inds = [k, j]
+                            config_inds = [cc[k][ind1[0]], cc[j][ind2[0]]]
+
+                # connect the two closets connected components
+                cc[cc_inds[0]] = cc[cc_inds[0]] + cc[cc_inds[1]]
+                del cc[cc_inds[1]]
+                edm[config_inds, config_inds[::-1]] = cc_min_dist
 
             graph = nx.from_numpy_matrix(edm)
             terminals = list(range(x_task.shape[0]))
             st = nx.algorithms.approximation.steiner_tree(graph, terminals)
 
             st_nodes = list(st.nodes)
-            comm_idcs = np.asarray(st_nodes[x_task.shape[0]:]) - x_task.shape[0]
-            # import pdb;pdb.set_trace()
-            x_comm[i] = x_comm[i][comm_idcs,:]
+            if len(st_nodes) < config.shape[0]:
+                comm_idcs = np.asarray(st_nodes[x_task.shape[0]:]) - x_task.shape[0]
+                x_comm[i] = x_comm[i][comm_idcs,:]
+
+        # find connectivity
+        conn[i] = ConnOpt.connectivity(params['channel_model'], x_task, x_comm[i])
+
+        # increase transmit power until the network is connected
+        power[i] = params['channel_model'].t
+        while variable_power and conn[i] < tol:
+            power[i] += 0.2
+            cm = PiecewisePathLossModel(print_values=False, t=power[i])
             conn[i] = ConnOpt.connectivity(cm, x_task, x_comm[i])
 
     # return the best result
