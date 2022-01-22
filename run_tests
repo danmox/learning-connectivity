@@ -64,11 +64,11 @@ def main(args):
 
     if run_line:
         print('\nrunning line test')
-        line_test(model_file)
+        line_test(model_file, steps=60)
 
     if run_circle:
         print('\nrunning circle test')
-        circle_test(model_file)
+        circle_test(model_file, task_agents=4, steps=60)
 
     # generate results for large teams
 

@@ -1,5 +1,6 @@
 import argparse
 import h5py
+import json
 import time
 import torch
 import matplotlib.pyplot as plt
@@ -240,11 +241,35 @@ def extract_128px_center_image(image, scale):
     return image[center_idx-64:center_idx+64, center_idx-64:center_idx+64]
 
 
+def save_case(data, existing_fig=True):
+
+    if existing_fig:
+        # figure
+        plt.savefig(data['filename'] + '.png', dpi=150)
+        plt.close()
+
+    # raw image
+    fig = plt.figure()
+    fig.set_size_inches((4,4))
+    ax = plt.Axes(fig, [0., 0., 1., 1.])
+    ax.set_axis_off()
+    fig.add_axes(ax)
+    ax.imshow(np.flipud(data['img'].T), aspect='equal', cmap='gist_gray_r')
+    plt.savefig(data['filename'] + '_raw.png', dpi=150)
+    plt.close()
+
+    # data
+    with open(data['filename'] + '.json', 'w') as f:
+        json.dump(data['json'], f, indent=4)
+
+    print(f"saved figure, image, and data {data['filename']+'{.png,_raw.png,.json}'}")
+
+
 def line_main(args):
-    line_test(args.model, args.draws, args.save)
+    line_test(args.model, args.draws, args.save, args.steps)
 
 
-def line_test(model_file, draws=1, save=True):
+def line_test(model_file, draws=1, save=True, steps=20):
 
     model = load_model_for_eval(model_file)
     if model is None:
@@ -254,7 +279,7 @@ def line_test(model_file, draws=1, save=True):
     scale = scale_from_filename(model_name)
     params = cnn_image_parameters(scale)
 
-    dists = np.linspace(40, 120, args.steps)
+    dists = np.linspace(40, 120, steps)
     for i, dist in enumerate(dists):
         x_task = np.asarray([[-dist,0], [dist,0]]) / 2
         img = lloyd.kernelized_config_img(x_task, params)
@@ -277,20 +302,21 @@ def line_test(model_file, draws=1, save=True):
         plt.tight_layout()
 
         if save:
-            filename = f'line_{i:02d}_{model_name}.png'
-            plt.savefig(filename, dpi=150)
-            np.save(filename[:-4], cnn_img)
-            plt.close()
-            print(f'saved image and array {filename[:-3]+"{png,npy}"}')
+            data = {'filename': f'line_{i:02d}_{model_name}', 'img': disp_img,
+                    'json': {'task': {'config': x_task.tolist()},
+                             'cnn': {'config': x_cnn.tolist(), 'power': cnn_pwr, 'connectivity': cnn_conn},
+                             'opt': {'config': x_opt.tolist(), 'power': params['channel_model'].t,
+                                     'connectivity': opt_conn}}}
+            save_case(data)
         else:
             plt.show()
 
 
 def circle_main(args):
-    circle_test(args.model, args.agents, args.draws, args.save)
+    circle_test(args.model, args.agents, args.draws, args.save, args.steps)
 
 
-def circle_test(model_file, task_agents=3, draws=1, save=True):
+def circle_test(model_file, task_agents=3, draws=1, save=True, steps=15):
 
     model = load_model_for_eval(model_file)
     if model is None:
@@ -301,7 +327,7 @@ def circle_test(model_file, task_agents=3, draws=1, save=True):
     params = cnn_image_parameters(scale)
 
     min_rad = (params['comm_range']+2.0) / (2.0 * np.sin(np.pi / task_agents))
-    rads = np.linspace(min_rad, 60, args.steps)
+    rads = np.linspace(min_rad, 60, steps)
     for i, rad in enumerate(rads):
         x_task = circle_points(rad, task_agents)
         img = lloyd.kernelized_config_img(x_task, params)
@@ -328,11 +354,12 @@ def circle_test(model_file, task_agents=3, draws=1, save=True):
         plt.tight_layout()
 
         if save:
-            filename = f'circle_{i:02d}_agents_{task_agents}_{model_name}.png'
-            plt.savefig(filename, dpi=150)
-            np.save(filename[:-4], cnn_img)
-            plt.close()
-            print(f'saved image and array {filename[:-3]+"{png,npy}"}')
+            data = {'filename': f'circle_{i:02d}_agents_{task_agents}_{model_name}', 'img': disp_img,
+                    'json': {'task': {'config': x_task.tolist()},
+                             'cnn': {'config': x_cnn.tolist(), 'power': cnn_pwr, 'connectivity': cnn_conn},
+                             'opt': {'config': x_opt.tolist(), 'power': params['channel_model'].t,
+                                     'connectivity': opt_conn}}}
+            save_case(data)
         else:
             plt.show()
 
@@ -433,8 +460,10 @@ def connectivity_test(model_file, dataset, sample=None, save=True, train=False, 
 
     cnn_conn, x_cnn, cnn_L0, cnn_img = connectivity_from_CNN(task_img, model, x_task, params, min_config=not nost)
 
+    disp_img = np.maximum(task_img, cnn_img)
+
     ax = plt.subplot()
-    plot_image(ax, np.maximum(task_img, cnn_img), x_task=x_task, x_opt=x_opt, x_cnn=x_cnn, params=params)
+    plot_image(ax, disp_img, x_task=x_task, x_opt=x_opt, x_cnn=x_cnn, params=params)
     ax.legend(loc='best', fontsize=14)
     ax.tick_params(axis='both', which='major', labelsize=16)
 
@@ -448,11 +477,14 @@ def connectivity_test(model_file, dataset, sample=None, save=True, train=False, 
         print(f'showing sample {idx} from {dataset_file.name}')
         plt.show()
     else:
-        filename = str(idx) + '_' + dataset_file.stem + '.png'
-        plt.savefig(filename, dpi=150)
-        print(f'saved image {filename}')
-    plt.close()
+        data = {'filename': str(idx) + '_' + dataset_file.stem, 'img': disp_img,
+                'json': {'task': {'config': x_task.tolist()},
+                         'cnn': {'config': x_cnn.tolist(), 'power': cnn_pwr, 'connectivity': cnn_conn},
+                         'opt': {'config': x_opt.tolist(), 'power': params['channel_model'].t,
+                                 'connectivity': opt_conn}}}
+        save_case(data)
 
+    plt.close()
     hdf5_file.close()
 
 
