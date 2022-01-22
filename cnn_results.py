@@ -763,16 +763,16 @@ def variation_test(args):
     # plt.show()
 
 
-def time_test(args):
+def compute_time_test(args):
 
     model = load_model_for_eval(args.model)
     if model is None:
         return
 
     min_agents = 3
-    max_agents = 18
+    max_agents = 20
     team_sizes = np.arange(min_agents, max_agents+1)
-    samples = 10
+    samples = 20
 
     img_scale_factor = 2
     params = cnn_image_parameters(img_scale_factor)
@@ -809,19 +809,30 @@ def time_test(args):
             dt = time.time() - t0
             opt_time[team_idx, sample_idx] = dt
 
+    res = {}
+    res['agents'] = team_sizes.tolist()
+    res['cnn'] = {'mean': np.mean(cnn_time, axis=1).tolist(), 'std': np.std(cnn_time, axis=1).tolist()}
+    res['opt'] = {'mean': np.mean(opt_time, axis=1).tolist(), 'std': np.std(opt_time, axis=1).tolist()}
+    with open('computation_time.json', 'w') as f:
+        json.dump(res, f, indent=4)
+
+
+def plot_time_test(args):
+
+    data_file = Path(args.datafile)
+    if not data_file.exists():
+        print(f'provided datafile {data_file} not found')
+        return
+
+    with open(data_file, 'r') as f:
+        data = json.load(f);
+
     # computation time with error bars
     fig, ax = plt.subplots()
-    print('cnn mean times:')
-    print(np.mean(cnn_time, axis=1))
-    print('opt mean times:')
-    print(np.mean(opt_time, axis=1))
-    ax.errorbar(team_sizes, np.mean(cnn_time, axis=1), yerr=np.std(cnn_time, axis=1),
-                color='r', lw=2, label='CNN')
-    ax.errorbar(team_sizes, np.mean(opt_time, axis=1), yerr=np.std(opt_time, axis=1),
-                color='b', lw=2, label='opt')
+    ax.errorbar(data['agents'], data['cnn']['mean'], yerr=data['cnn']['std'], color='r', lw=2, label='CNN')
+    ax.errorbar(data['agents'], data['opt']['mean'], yerr=data['opt']['std'], color='b', lw=2, label='opt')
     ax.set_xlabel('total agents', fontsize=16)
     ax.set_ylabel('computation time (s)', fontsize=16)
-    ax.set_xticks(team_sizes[::2])
     ax.tick_params(axis='both', which='major', labelsize=16)
     ax.legend(loc='upper left', fontsize=16)
     plt.tight_layout()
@@ -887,9 +898,12 @@ if __name__ == '__main__':
     var_parser.add_argument('dataset', type=str, help='test dataset')
     var_parser.add_argument('--sample', type=int, help='sample to test')
 
-    time_parser = subparsers.add_parser('time', help='compare CNN inference time with optimization time')
-    time_parser.add_argument('model', type=str, help='model')
-    time_parser.add_argument('--draws', metavar='N', type=int, default=1, help='use best of N model samples')
+    comp_time_parser = subparsers.add_parser('compute_time', help='compare CNN inference time with optimization time')
+    comp_time_parser.add_argument('model', type=str, help='model')
+    comp_time_parser.add_argument('--draws', metavar='N', type=int, default=1, help='use best of N model samples')
+
+    plot_time_parser = subparsers.add_parser('plot_time', help='compare CNN inference time with optimization time')
+    plot_time_parser.add_argument('datafile', type=str, help='JSON datafile with computation time stats')
 
     mpl.rcParams['figure.dpi'] = 150
 
@@ -910,5 +924,7 @@ if __name__ == '__main__':
         parse_stats_main(args)
     elif args.command == 'variation':
         variation_test(args)
-    elif args.command == 'time':
-        time_test(args)
+    elif args.command == 'compute_time':
+        compute_time_test(args)
+    elif args.command == 'plot_time':
+        plot_time_test(args)
