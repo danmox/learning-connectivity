@@ -628,10 +628,10 @@ def compute_stats_test(model_file, dataset_file, train=False, samples=None, nosa
 
 
 def parse_stats_main(args):
-    parse_stats_test(args.stats, args.labels, args.save)
+    parse_stats_test(args.stats, args.labels, args.save, args.nolog)
 
 
-def parse_stats_test(stats_files, labels, save=True):
+def parse_stats_test(stats_files, labels, save=True, nolog=False):
 
     if len(stats_files) != len(labels):
         print(f'number of stats files ({len(stats_files)}) must match number of labels ({len(labels)})')
@@ -652,18 +652,21 @@ def parse_stats_test(stats_files, labels, save=True):
     bins = np.hstack(([-0.9, 0.1], np.arange(1.1, 10.1, 1.0)))
 
     fig, ax = plt.subplots()
-    ax.hist(powers, bins=bins, stacked=False, log=True, label=labels)
+    ax.hist(powers, bins=bins, stacked=False, log=not nolog, density=True, label=labels)
     ax.legend(loc='best', fontsize=16)
     ax.set_xticks(np.arange(0, 10, 3))
+    if not nolog: ax.set_yticks([10 ** (-i) for i in range(5)])
     ax.set_xlabel('$P_T$ dBm', fontsize=18)
-    ax.set_ylabel('# test cases', fontsize=18)
+    ax.set_ylabel('fraction of test cases', fontsize=18)
     ax.tick_params(axis='both', which='major', labelsize=18)
     plt.tight_layout()
 
     if save:
-        plt.savefig('power_histogram.pdf', dpi=150)
-        print('saved power_histogram.pdf')
+        tmp_powers = np.vstack([stats[k]['power'].reshape(-1,1) for k in stats.keys()])
+        np.savetxt('transmit_power.csv', tmp_powers, fmt='%.1f', delimiter=',', header='power')
 
+        plt.savefig('power_histogram.pdf', dpi=150)
+        print('saved power_histogram.pdf and transmit_power.csv')
 
     # histogram of difference between CNN agent count and opt agent count
 
@@ -673,26 +676,32 @@ def parse_stats_test(stats_files, labels, save=True):
         mask = np.round(stats[label]['power'], 1) == p['channel_model'].t  # all samples where CNN used default power
         agent_diffs += [(stats[label]['cnn_count'][mask] - stats[label]['opt_count'][mask]).astype(int)]
 
-    bins = np.arange(np.min(np.hstack(agent_diffs)), np.max(np.hstack(agent_diffs))+2, 1)
+    bins = np.arange(np.min(np.hstack(agent_diffs)), np.max(np.hstack(agent_diffs))-2, 1)
 
     fig, ax = plt.subplots()
-    ax.hist(agent_diffs, bins=bins, stacked=False, log=True, align='left', label=labels)
+    ax.hist(agent_diffs, bins=bins, stacked=False, log=not nolog, density=True, align='left', label=labels)
     ax.legend(loc='best', fontsize=18)
     ax.set_xticks(bins[:-1])
+    if not nolog: ax.set_yticks([10 ** (-i) for i in range(5)])
     ax.set_xlabel('# CNN agents $-$ # opt agents', fontsize=18)
-    ax.set_ylabel('# test cases', fontsize=18)
+    ax.set_ylabel('fraction of test cases', fontsize=18)
     ax.tick_params(axis='both', which='major', labelsize=18)
     plt.tight_layout()
 
     if save:
+        diffs = np.vstack([arr.reshape(-1,1) for arr in agent_diffs])
+        np.savetxt('agent_diffs.csv', diffs, fmt='%d', delimiter=',', header='diff')
+
         plt.savefig('agent_count_histogram.pdf', dpi=150)
-        print('saved agent_count_histogram.pdf')
+        print('saved agent_count_histogram.pdf and agent_diffs.csv')
     else:
         plt.show()
 
+    avg_team_size = np.mean(np.hstack([stats[l]['cnn_count'] + stats[l]['opt_count'] for l in labels]))
     print(f'power: mean = {np.mean(np.hstack(powers)):.2f}, std = {np.std(np.hstack(powers)):.3f}')
     print(f'diffs: mean = {np.mean(np.hstack(agent_diffs)):.4f}, std = {np.std(np.hstack(agent_diffs)):.3f}'
           f' ({sum([len(d) for d in agent_diffs])} / {sum([len(p) for p in powers])})')
+    print(f'average team size: {avg_team_size:.2f}')
 
 
 def variation_test(args):
@@ -871,6 +880,7 @@ if __name__ == '__main__':
     parse_parser.add_argument('--stats', type=str, help='stats.npy files generated from compute_stats', nargs='+')
     parse_parser.add_argument('--labels', type=str, help='labels to use with each stats file', nargs='+')
     parse_parser.add_argument('--save', action='store_true')
+    parse_parser.add_argument('--nolog', action='store_true', help='disable log y-axis')
 
     var_parser = subparsers.add_parser('variation', help='show variation in model outputs')
     var_parser.add_argument('model', type=str, help='model')
