@@ -23,7 +23,7 @@ class View(nn.Module):
 class AEBase(pl.LightningModule):
     """base class for connectivity autoencoder models"""
 
-    def __init__(self, log_step):
+    def __init__(self, log_step, dataset_name):
         super().__init__()
 
         # set learning rate
@@ -45,7 +45,7 @@ class AEBase(pl.LightningModule):
 
         # names used for saving checkpoints
         self.model_name = ''     # set by derived class
-        self.dataset_name = None
+        self.dataset_name = dataset_name
 
         # initialize network
         self.init_model()
@@ -125,18 +125,8 @@ class AEBase(pl.LightningModule):
         if val_loss < self.val_loss_best:
             self.val_loss_best = val_loss
 
-            if self.best_model_path is not None:
-                self.best_model_path.unlink(missing_ok=True)
-
-            # initialize self.dataset_name to a string of the fixed number of
-            # task agents used in each dataset
-            if self.dataset_name is None:
-                dataset_task_agent_counts = []
-                for dataset in self.trainer.model.train_dataloader.dataloader.dataset.hdf5_files:
-                    dataset_task_agent_counts.append(int(dataset.name.split('_')[3][:-1]))
-                    dataset_res = dataset.name[:4]  # assume all datasets have the same resolution, for now
-                dataset_task_agent_counts.sort()
-                self.dataset_name = dataset_res + 't'.join(map(str, dataset_task_agent_counts)) + 't'
+            if self.best_model_path is not None and self.best_model_path.exists():
+                self.best_model_path.unlink()
 
             timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
             stats_str = f'valloss_{val_loss:.3e}_epoch_{self.current_epoch}'
@@ -172,8 +162,8 @@ class AEBase(pl.LightningModule):
 class UAEBase(AEBase):
     """your stock undercomplete auto encoder"""
 
-    def __init__(self, log_step=1):
-        super().__init__(log_step)
+    def __init__(self, log_step=1, dataset_name='Dataset'):
+        super().__init__(log_step, dataset_name)
 
     def forward(self, x):
         return self.network(x)
@@ -187,8 +177,8 @@ class BetaVAEBase(AEBase):
 
     """
 
-    def __init__(self, log_step=1):
-        super().__init__(log_step)
+    def __init__(self, log_step=1, dataset_name='Dataset'):
+        super().__init__(log_step, dataset_name)
 
     def forward(self, x):
 

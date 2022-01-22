@@ -66,7 +66,13 @@ def load_model_for_eval(model_file):
 def train_main(args):
 
     cpus = os.cpu_count()
-    gpus = 1 if torch.cuda.is_available() else 0
+    addl_training_args = {}
+    if torch.cuda.is_available():
+        addl_training_args['gpus'] = min(torch.cuda.device_count(), args.gpus)
+        if torch.cuda.device_count() > 1:
+            addl_training_args['distributed_backend'] = 'ddp'
+    else:
+        addl_training_args['gpus'] = 0
 
     # load dataset
 
@@ -81,8 +87,18 @@ def train_main(args):
 
     # initialize model or load one, if provided
 
-    log_step = ceil(len(train_dataloader)/100) # log averaged loss ~100 times per epoch
-    kld_weight = 1.0 / len(train_dataloader)
+    model_args = {}
+    model_args['log_step'] = ceil(len(train_dataloader)/100) # log averaged loss ~100 times per epoch
+    model_args['kld_weight'] = 1.0 / len(train_dataloader)
+
+    # set dataset_name to a string of the fixed number of task agents used in each dataset
+    dataset_task_agent_counts = []
+    for dataset_filename in args.dataset:
+        dataset = Path(dataset_filename)
+        dataset_task_agent_counts.append(int(dataset.name.split('_')[3][:-1]))
+        dataset_res = dataset.name[:4]  # assume all datasets have the same resolution, for now
+    dataset_task_agent_counts.sort()
+    model_args['dataset_name'] = dataset_res + 't'.join(map(str, dataset_task_agent_counts)) + 't'
 
     if args.model[-5:] == '.ckpt':
         model = load_model_from_checkpoint(args.model)
@@ -90,7 +106,7 @@ def train_main(args):
             return
     else:
         try:
-            model = globals()[args.model](log_step=log_step, kld_weight=kld_weight)
+            model = globals()[args.model](**model_args)
         except:
             print(f'unrecognized model type {args.model}')
             return
@@ -98,7 +114,7 @@ def train_main(args):
     # train network
 
     logger = pl_loggers.TensorBoardLogger('runs/', name=model.model_name)
-    trainer = pl.Trainer(logger=logger, max_epochs=args.epochs, weights_summary='top', gpus=gpus)
+    trainer = pl.Trainer(logger=logger, max_epochs=args.epochs, weights_summary='top', **addl_training_args)
     trainer.fit(model, train_dataloader, val_dataloader)
 
 
@@ -188,6 +204,7 @@ if __name__ == '__main__':
     train_parser.add_argument('dataset', type=str, help='dataset for training', nargs='+')
     train_parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train for')
     train_parser.add_argument('--batch-size', type=int, default=4, help='batch size for training')
+    train_parser.add_argument('--gpus', type=int, default=-1, help='number of GPUs to use for training')
 
     # inference subparser
     eval_parser = subparsers.add_parser('eval', help='run inference on samples(s)')
