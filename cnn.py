@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader
 
 from hdf5_dataset_utils import ConnectivityDataset, cnn_image_parameters
 from models import *
-from mid.connectivity_planner.src.connectivity_planner.feasibility import connect_graph
+from mid.feasibility import connect_graph
 
 
 def count_parameters(model):

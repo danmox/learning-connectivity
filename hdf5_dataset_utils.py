@@ -15,10 +15,10 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from mid.connectivity_planner.src.connectivity_planner import lloyd
-from mid.connectivity_planner.src.connectivity_planner.connectivity_optimization import ConnectivityOpt as ConnOpt
-from mid.connectivity_planner.src.connectivity_planner.channel_model import PiecewisePathLossModel
-from mid.connectivity_planner.src.connectivity_planner.feasibility import adaptive_bbx, min_feasible_sample
+from mid import lloyd
+from mid.connectivity_optimization import ConnectivityOpt as ConnOpt
+from mid.channel_model import PiecewisePathLossModel
+from mid.feasibility import adaptive_bbx, min_feasible_sample
 
 
 class ConnectivityDataset(Dataset):

@@ -16,10 +16,10 @@ from scipy import spatial
 from cnn import load_model_for_eval, get_file_name
 from connectivity_maximization import circle_points
 from hdf5_dataset_utils import ConnectivityDataset, cnn_image_parameters, plot_image
-from mid.connectivity_planner.src.connectivity_planner.connectivity_optimization import ConnectivityOpt as ConnOpt, round_sf
-from mid.connectivity_planner.src.connectivity_planner.channel_model import PiecewisePathLossModel
-from mid.connectivity_planner.src.connectivity_planner.feasibility import connect_graph, adaptive_bbx, min_feasible_sample
-from mid.connectivity_planner.src.connectivity_planner import lloyd
+from mid.connectivity_optimization import ConnectivityOpt as ConnOpt, round_sf
+from mid.channel_model import PiecewisePathLossModel
+from mid.feasibility import connect_graph, adaptive_bbx, min_feasible_sample
+from mid import lloyd
 
 
 def scale_from_filename(filename):

@@ -1,6 +1,6 @@
 from cnn_results import connectivity_from_CNN, connectivity_from_opt
 from hdf5_dataset_utils import cnn_image_parameters, plot_image
-from mid.connectivity_planner.src.connectivity_planner import lloyd
+from mid import lloyd
 from cnn import load_model_for_eval
 from matplotlib import pyplot as plt
 import numpy as np
